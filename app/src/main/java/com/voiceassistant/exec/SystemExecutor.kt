@@ -2,6 +2,7 @@ package com.voiceassistant.exec
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.media.AudioManager
 import android.view.KeyEvent
 import com.voiceassistant.log.DebugLog
@@ -106,8 +107,8 @@ class SystemExecutor(private val context: Context) {
         if (!A11yBridge.canTakeScreenshot()) {
             return ActionResult(action, false, "当前系统版本不支持直接截屏", "需要 Android 11 及以上")
         }
-        val bitmap = suspendCancellableCoroutine { cont ->
-            A11yBridge.takeScreenshot { cont.resume(it) }
+        val bitmap = suspendCancellableCoroutine<Bitmap?> { cont ->
+            A11yBridge.takeScreenshot { bmp -> if (cont.isActive) cont.resume(bmp) }
         } ?: return ActionResult(action, false, "截屏失败", "takeScreenshot 返回 null")
 
         val saved = ScreenshotSaver.save(context, bitmap)
