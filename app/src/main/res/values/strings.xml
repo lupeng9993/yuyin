@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">本地语音助手</string>
+
+    <!-- 无障碍 -->
+    <string name="accessibility_service_label">本地语音助手 · 指令执行</string>
+    <string name="accessibility_service_description">用于执行语音指令：发送微信消息、打开应用、调节音量、截屏等。需要手动开启，应用无法自动开启。只在你下达指令后操作界面。</string>
+
+    <!-- 常驻通知 -->
+    <string name="notification_channel_listening">语音监听服务</string>
+    <string name="notification_channel_listening_desc">保持唤醒监听与指令识别</string>
+    <string name="notification_title_listening">本地语音助手正在监听</string>
+    <string name="notification_title_paused">监听已暂停</string>
+    <string name="notification_action_stop">停止监听</string>
+    <string name="notification_action_open">打开应用</string>
+    <string name="notification_action_pause">暂停</string>
+    <string name="notification_action_resume">继续</string>
+
+    <!-- 悬浮窗菜单 -->
+    <string name="float_menu_status">状态</string>
+    <string name="float_menu_pause">暂停监听</string>
+    <string name="float_menu_resume">继续监听</string>
+    <string name="float_menu_open_app">打开应用</string>
+    <string name="float_menu_hide">隐藏小球</string>
+
+    <!-- 语音播报固定话术 -->
+    <string name="tts_confirm_wechat">确认发送微信消息？联系人 %1$s，内容是：%2$s。说确认，或者说取消。</string>
+    <string name="tts_confirm_cancelled">已取消</string>
+    <string name="tts_unrecognized">没听懂这条指令</string>
+    <string name="tts_unknown_command">无法识别该指令</string>
+    <string name="tts_navigate_failed">导航失败，%1$s</string>
+    <string name="tts_navigate_ok">好的，为你导航到%1$s</string>
+    <string name="tts_wechat_sent">消息已发送给%1$s</string>
+    <string name="tts_wechat_contact_missing">未找到联系人 %1$s，消息未发送</string>
+    <string name="tts_wechat_failed">发送失败，%1$s</string>
+    <string name="tts_skill_disabled">%1$s技能已关闭</string>
+    <string name="tts_asr_empty">没有听清，请再说一次</string>
+</resources>

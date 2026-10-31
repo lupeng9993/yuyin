@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  允许明文 HTTP：用户可能把云端适配器指向局域网自建网关（如 http://192.168.x.x:8000/v1）。
+  本项目不上架、不做支付，风险由用户自担；如需收紧可把 cleartextTrafficPermitted 改为 false。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

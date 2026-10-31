@@ -1,0 +1,150 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+// ---- 签名：所有敏感信息都来自本机 keystore.properties 或 CI 环境变量，仓库里没有 ----
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
+// CI 场景：用环境变量 KEYSTORE_BASE64 + KEYSTORE_PASSWORD 等（见 .github/workflows/build-apk.yml）
+def envStoreFile = System.getenv('KEYSTORE_FILE')
+def hasEnvSigning = envStoreFile != null && !envStoreFile.trim().isEmpty() && new File(envStoreFile).exists()
+def hasFileSigning = keystorePropsFile.exists() && keystoreProps.getProperty('storeFile') != null
+def hasSigning = hasEnvSigning || hasFileSigning
+
+android {
+    namespace 'com.voiceassistant'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.voiceassistant"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+
+        // 只保留真机主流 ABI：ONNX 推理库按 ABI 打包，x86 只会白白增加体积
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (hasEnvSigning) {
+                storeFile new File(envStoreFile)
+                storePassword System.getenv('KEYSTORE_PASSWORD')
+                keyAlias System.getenv('KEY_ALIAS')
+                keyPassword System.getenv('KEY_PASSWORD')
+            } else if (hasFileSigning) {
+                storeFile rootProject.file(keystoreProps.getProperty('storeFile'))
+                storePassword keystoreProps.getProperty('storePassword')
+                keyAlias keystoreProps.getProperty('keyAlias')
+                keyPassword keystoreProps.getProperty('keyPassword')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // 没有签名材料时产出未签名包，不阻断构建
+            if (hasSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+        freeCompilerArgs += [
+            '-opt-in=kotlin.RequiresOptIn',
+            // 兜底：AAR 若是用更新版 Kotlin 编译，元数据版本检查会拦下整个构建
+            '-Xskip-metadata-version-check'
+        ]
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+
+    packaging {
+        resources {
+            excludes += ['/META-INF/{AL2.0,LGPL2.1}', 'META-INF/DEPENDENCIES', 'META-INF/INDEX.LIST']
+        }
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+// ---- sherpa-onnx AAR 不在仓库里，构建前必须存在，否则给出人话提示 ----
+def sherpaAar = file("$projectDir/libs/sherpa-onnx-2.0.1.aar")
+tasks.register('checkSherpaAar') {
+    doLast {
+        if (!sherpaAar.exists()) {
+            throw new GradleException(
+                "缺少 ${sherpaAar.name}。\n" +
+                "请运行:\n" +
+                "  Windows : powershell -ExecutionPolicy Bypass -File scripts/fetch-sherpa-onnx.ps1\n" +
+                "  Linux/macOS : bash scripts/fetch-sherpa-onnx.sh\n" +
+                "或手动下载 https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/${sherpaAar.name}\n" +
+                "放到 app/libs/ 下。该文件约 49 MB，是 Apache-2.0 的推理库，不含任何模型。"
+            )
+        }
+    }
+}
+preBuild.dependsOn 'checkSherpaAar'
+
+dependencies {
+    // 离线语音引擎（KWS / VAD / ASR / TTS 共用一套 JNI）
+    implementation(name: 'sherpa-onnx-2.0.1', ext: 'aar')
+
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.activity:activity-compose:1.9.2'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.6'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6'
+    implementation 'androidx.lifecycle:lifecycle-service:2.8.6'
+    implementation 'androidx.lifecycle:lifecycle-process:2.8.6'
+
+    implementation platform('androidx.compose:compose-bom:2024.09.00')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-graphics'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-extended'
+
+    implementation 'androidx.datastore:datastore-preferences:1.1.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // tar.bz2 解压（模型包格式），纯 Java 实现，Android 可用
+    implementation 'org.apache.commons:commons-compress:1.26.2'
+
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+
+    // 单元测试：规则引擎与协议解析是纯 Kotlin 逻辑，可在 CI 里直接跑
+    testImplementation 'junit:junit:4.13.2'
+    // Android 自带的 org.json 在 JVM 单测里不存在，用官方实现替代
+    testImplementation 'org.json:json:20240303'
+}

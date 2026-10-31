@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose 应用只需要一个无 ActionBar 的宿主主题，实际配色在 Compose 里定义 -->
+    <style name="Theme.VoiceAssistant" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/bg_window</item>
+    </style>
+</resources>

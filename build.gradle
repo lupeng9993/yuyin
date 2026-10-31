@@ -1,0 +1,7 @@
+plugins {
+    // Kotlin 用较新的版本：sherpa-onnx 的 AAR 可能是用更新的 Kotlin 编译的，
+    // 新版编译器能读旧 metadata，反之会报 "compiled with a newer Kotlin version"。
+    id 'com.android.application' version '8.7.3' apply false
+    id 'org.jetbrains.kotlin.android' version '2.2.20' apply false
+    id 'org.jetbrains.kotlin.plugin.compose' version '2.2.20' apply false
+}
