@@ -55,19 +55,19 @@ object IntentParser {
 
     private fun parseOne(obj: JSONObject): VaAction {
         val wire = obj.optString("action", "").trim()
-        val type = ActionType.fromWire(wire)
+        val type = ActionType.fromWire(canonicalAction(wire))
             ?: return VaAction.unknown("不支持的动作类型：${wire.ifEmpty { "空" }}")
 
         return when (type) {
             ActionType.NAVIGATE -> {
-                val dest = obj.optString("destination", "").trim()
+                val dest = optAny(obj, "destination", "place", "to", "target", "address")
                 if (dest.isEmpty()) VaAction.unknown("缺少目的地")
                 else VaAction(ActionType.NAVIGATE, destination = dest)
             }
 
             ActionType.SEND_WECHAT -> {
-                val contact = obj.optString("contact", "").trim()
-                val message = obj.optString("message", "").trim()
+                val contact = optAny(obj, "contact", "name", "to", "receiver")
+                val message = optAny(obj, "message", "content", "text", "msg")
                 when {
                     contact.isEmpty() -> VaAction.unknown("缺少联系人")
                     message.isEmpty() -> VaAction.unknown("缺少消息内容")
@@ -76,7 +76,12 @@ object IntentParser {
             }
 
             ActionType.OTHER -> {
-                val rawText = obj.optString("raw_text", "").trim()
+                var rawText = optAny(obj, "raw_text", "raw", "text", "command", "content", "cmd")
+                if (rawText.isEmpty()) {
+                    // 有些模型给结构化字段，例如 {"action":"open_app","app":"抖音"}
+                    val app = optAny(obj, "app", "application", "target", "name")
+                    if (app.isNotEmpty()) rawText = "打开$app"
+                }
                 if (rawText.isEmpty()) VaAction.unknown("缺少指令内容")
                 else VaAction(ActionType.OTHER, rawText = rawText)
             }
@@ -86,6 +91,32 @@ object IntentParser {
                 VaAction.unknown(reason.ifEmpty { "无法识别该指令" })
             }
         }
+    }
+
+    /**
+     * 模型有时不按约定写动作名（open_app / navigate_to / send_message…）。
+     * 这里做一次同义词归一，仍然只落到那四种动作上，不新增能力。
+     */
+    private fun canonicalAction(raw: String): String {
+        val key = raw.lowercase().trim().replace('-', '_').replace(' ', '_')
+        return when (key) {
+            "open_app", "openapp", "launch", "launch_app", "open", "start_app",
+            "system_control", "device_control", "control" -> "other"
+            "navigate_to", "navigation", "route", "goto" -> "navigate"
+            "send_message", "sendmsg", "send_msg", "send_wechat_message",
+            "wechat", "wechat_message", "send_wechat_msg" -> "send_wechat"
+            "none", "unknown_command" -> "unknown"
+            else -> key
+        }
+    }
+
+    /** 依次尝试多个字段名，取第一个非空的 */
+    private fun optAny(obj: JSONObject, vararg names: String): String {
+        for (name in names) {
+            val value = obj.optString(name, "")
+            if (value.isNotBlank()) return value.trim()
+        }
+        return ""
     }
 }
 

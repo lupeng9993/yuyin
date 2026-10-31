@@ -17,6 +17,8 @@
     <!-- 开机自启：设置页开关控制，默认关闭 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 语音关闭指定应用（先回桌面再结束它的后台进程） -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <!-- 按应用名打开应用需要能看到已安装应用；本项目只本地安装、不上架 -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"

@@ -49,6 +49,8 @@ class WakeService : Service() {
         const val ACTION_STOP = "com.voiceassistant.action.STOP"
         const val ACTION_PAUSE = "com.voiceassistant.action.PAUSE"
         const val ACTION_RESUME = "com.voiceassistant.action.RESUME"
+        const val ACTION_SHOW_BALL = "com.voiceassistant.action.SHOW_BALL"
+        const val ACTION_HIDE_BALL = "com.voiceassistant.action.HIDE_BALL"
 
         private const val MAX_UTTERANCE_MS = 12_000L
         private const val CONFIRM_TIMEOUT_MS = 10_000L
@@ -70,7 +72,11 @@ class WakeService : Service() {
     private var vad: VadEngine? = null
     private var floatWindow: FloatWindow? = null
     private var loopJob: Job? = null
+    private var rebuildJob: Job? = null
     private val cloud = CloudIntentService()
+
+    /** 最近一次「听不懂」的具体原因，写到结果卡上方便排查 */
+    private var lastUnderstandError: String = ""
 
     @Volatile
     private var state: State = State.LISTENING
@@ -176,6 +182,15 @@ class WakeService : Service() {
                 resume()
                 return START_STICKY
             }
+            ACTION_SHOW_BALL -> {
+                showFloatBallForced()
+                return START_STICKY
+            }
+            ACTION_HIDE_BALL -> {
+                hideFloatBall()
+                AppStateBus.setFloatBallError("")
+                return START_STICKY
+            }
             else -> Unit
         }
 
@@ -201,7 +216,7 @@ class WakeService : Service() {
         AppStateBus.setServiceRunning(true)
         scope.launch {
             settings = repo.current()
-            rebuildEngines()
+            rebuildEnginesNow()
             startAudio()
             if (settings.floatBallEnabled) showFloatBall()
             observeSettings()
@@ -267,17 +282,25 @@ class WakeService : Service() {
     }
 
     private fun rebuildEngines() {
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                releaseEngines()
-                wake = EngineFactory.createWake(this@WakeService, settings)
-                asr = EngineFactory.createAsr(this@WakeService, settings)
-                speak = EngineFactory.createSpeak(this@WakeService, settings)
-                vad = EngineFactory.createVad(this@WakeService, settings)
-                DebugLog.d(TAG, "引擎就绪: wake=${wake?.name} asr=${asr?.name} tts=${speak?.name} vad=${vad?.name}")
-            }
-            publishWakeInfo()
+        // 防抖：用户连续调设置（拖滑块、点唤醒词）时不要每次都重建引擎，
+        // 否则会在几百毫秒里反复加载模型，既卡又费电
+        rebuildJob?.cancel()
+        rebuildJob = scope.launch {
+            delay(600)
+            rebuildEnginesNow()
         }
+    }
+
+    private suspend fun rebuildEnginesNow() {
+        withContext(Dispatchers.IO) {
+            releaseEngines()
+            wake = EngineFactory.createWake(this@WakeService, settings)
+            asr = EngineFactory.createAsr(this@WakeService, settings)
+            speak = EngineFactory.createSpeak(this@WakeService, settings)
+            vad = EngineFactory.createVad(this@WakeService, settings)
+            DebugLog.d(TAG, "引擎就绪: wake=${wake?.name} asr=${asr?.name} tts=${speak?.name} vad=${vad?.name}")
+        }
+        publishWakeInfo()
     }
 
     /** 把唤醒引擎的真实状态（引擎名、可用关键词、错误）推给界面 */
@@ -324,6 +347,8 @@ class WakeService : Service() {
                 state = State.CAPTURING
                 // 开始听指令：小球边缘亮起极光
                 floatWindow?.setAurora(true)
+                // 先把别的 App 的播放暂停，避免 TTS 和音乐混在一起、也减少回声
+                val pausedMedia = com.voiceassistant.exec.MediaHelper.pauseIfPlaying(this)
                 try {
                     handleUtterance()
                 } catch (e: Exception) {
@@ -333,8 +358,9 @@ class WakeService : Service() {
                     drainAudio()
                     wake?.reset()
                     state = State.LISTENING
-                    // 指令处理完，极光熄灭
+                    // 指令处理完，极光熄灭、媒体恢复播放
                     floatWindow?.setAurora(false)
+                    if (pausedMedia) com.voiceassistant.exec.MediaHelper.resume(this)
                 }
             }
         }
@@ -378,8 +404,10 @@ class WakeService : Service() {
 
         val plan = understand(text) ?: run {
             speakSafely(getString(com.voiceassistant.R.string.tts_unknown_command))
-            // 把听到的原话写进结果卡：绝大多数「无法识别」都是识别错字，看一眼就明白
-            AppStateBus.onResult("无法识别该指令（听到：$text）")
+            val reason = lastUnderstandError
+            AppStateBus.onResult(
+                "无法识别该指令（听到：$text）" + if (reason.isNotBlank()) "｜原因：$reason" else ""
+            )
             return
         }
 
@@ -389,6 +417,7 @@ class WakeService : Service() {
 
     /** 本地规则优先；未命中且云端已开才请求云端；云端失败按设置决定是否回退 */
     private suspend fun understand(text: String): ActionPlan? {
+        lastUnderstandError = ""
         RuleEngine.matchLocal(text)?.let { match ->
             DebugLog.d(TAG, "本地规则命中: ${match.plan.actions.size} 个动作")
             AppStateBus.onDebug(parseState = "本地规则命中")
@@ -398,6 +427,7 @@ class WakeService : Service() {
         if (!settings.cloudEnabled) {
             AppStateBus.onDebug(parseState = "本地未命中，云端已关闭")
             DebugLog.d(TAG, "本地未命中且云端关闭")
+            lastUnderstandError = "本地规则没匹配上，云端未启用"
             return null
         }
 
@@ -410,8 +440,14 @@ class WakeService : Service() {
 
         when (val outcome = result.outcome) {
             is ParseOutcome.Success -> return outcome.plan
-            is ParseOutcome.Failure -> DebugLog.w(TAG, "云端解析失败: ${outcome.reason}")
-            null -> DebugLog.w(TAG, "云端调用失败: ${result.error?.kind} ${result.error?.detail}")
+            is ParseOutcome.Failure -> {
+                DebugLog.w(TAG, "云端解析失败: ${outcome.reason}")
+                lastUnderstandError = "云端返回解析失败：${outcome.reason}"
+            }
+            null -> {
+                DebugLog.w(TAG, "云端调用失败: ${result.error?.kind} ${result.error?.detail}")
+                lastUnderstandError = "云端调用失败：${result.error?.kind?.userMessage ?: "未知"}"
+            }
         }
 
         // 降级：再走一次本地规则（云端已失败，这里给用户一次本地兜底的机会）
@@ -421,6 +457,7 @@ class WakeService : Service() {
                 return it.plan
             }
         }
+        if (lastUnderstandError.isBlank()) lastUnderstandError = "云端没有给出可执行的动作"
         return null
     }
 
@@ -428,7 +465,8 @@ class WakeService : Service() {
         val outcome = Dispatcher(
             context = applicationContext,
             settings = settings,
-            confirm = { action -> askConfirm(action) }
+            confirm = { action -> askConfirm(action) },
+            choosePlace = { places -> askPlaceChoice(places) }
         ).dispatch(plan)
 
         reportOutcome(outcome)
@@ -442,6 +480,44 @@ class WakeService : Service() {
         }
         AppStateBus.onResult(summary)
         DebugLog.d(TAG, "执行汇总: $summary")
+    }
+
+    // ---------------- 导航候选选择 ----------------
+
+    /** 导航有多个候选地点：念出来让用户挑一个 */
+    private suspend fun askPlaceChoice(
+        places: List<com.voiceassistant.exec.NavigationExecutor.Place>
+    ): com.voiceassistant.exec.NavigationExecutor.Place? {
+        if (places.isEmpty()) return null
+        if (places.size == 1) return places.first()
+
+        val question = buildString {
+            append("找到${places.size}个地方：")
+            places.forEachIndexed { index, place -> append("${index + 1}，${place.name}。") }
+            append("说序号，或者直接说地名。")
+        }
+        state = State.SPEAKING
+        speakSafely(question)
+        delay(150)
+        drainAudio()
+
+        state = State.CONFIRMING
+        val samples = captureUtterance(8_000, requireSpeech = false)
+        if (samples.size < AudioCapture.SAMPLE_RATE * 300 / 1000) return null
+        val answer = recognize(samples)
+        DebugLog.d(TAG, "地点选择回答: $answer")
+
+        Regex("[1-9]").find(answer)?.value?.toIntOrNull()?.let { n ->
+            if (n in 1..places.size) return places[n - 1]
+        }
+        val chineseNumbers = mapOf('一' to 1, '二' to 2, '两' to 2, '三' to 3, '四' to 4, '五' to 5)
+        answer.firstOrNull { chineseNumbers.containsKey(it) }?.let { ch ->
+            chineseNumbers[ch]?.let { n -> if (n in 1..places.size) return places[n - 1] }
+        }
+        places.firstOrNull { p ->
+            answer.contains(p.name) || (p.name.length >= 2 && answer.contains(p.name.take(2)))
+        }?.let { return it }
+        return null
     }
 
     // ---------------- 二次确认（语音） ----------------
@@ -584,26 +660,50 @@ class WakeService : Service() {
 
     private fun showFloatBall() {
         if (floatWindow?.isVisible == true) return
-        val window = FloatWindow(
-            context = this,
-            alpha = settings.floatBallAlpha,
-            onTogglePause = { togglePause() },
-            onOpenApp = {
-                startActivity(
-                    Intent(this, com.voiceassistant.ui.MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
+        // 关键：WindowManager 加 View 必须在主线程，否则抛
+        // "Can't create handler inside thread that has not called Looper.prepare()"
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (floatWindow?.isVisible == true) return@post
+            val window = FloatWindow(
+                context = this,
+                alpha = settings.floatBallAlpha,
+                onTogglePause = { togglePause() },
+                onOpenApp = {
+                    startActivity(
+                        Intent(this, com.voiceassistant.ui.MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            )
+            if (window.show()) {
+                window.setListening(!paused)
+                floatWindow = window
+                AppStateBus.setFloatBallError("")
+            } else {
+                AppStateBus.setFloatBallError(window.lastError ?: "未知原因，悬浮窗没加上")
+                DebugLog.w(TAG, "悬浮球显示失败: ${window.lastError}")
             }
-        )
-        if (window.show()) {
-            window.setListening(!paused)
-            floatWindow = window
+        }
+    }
+
+    /** 设置页「测试显示小球」用：重新读配置再试一次，把结果写回界面 */
+    private fun showFloatBallForced() {
+        scope.launch {
+            settings = repo.current()
+            hideFloatBall()
+            showFloatBall()
+            if (floatWindow?.isVisible != true && AppStateBus.state.value.floatBallError.isBlank()) {
+                AppStateBus.setFloatBallError("没能显示出来：请确认已授予悬浮窗权限，且服务在运行")
+            }
         }
     }
 
     private fun hideFloatBall() {
-        floatWindow?.hide()
+        val window = floatWindow ?: return
         floatWindow = null
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            window.hide()
+        }
     }
 
     private fun stopSelfSafely() {

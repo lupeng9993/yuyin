@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -91,6 +93,8 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
     var keywordMsg by remember { mutableStateOf<String?>(null) }
     // 欢迎词下拉
     var ackMenuOpen by remember { mutableStateOf(false) }
+    // 模型唤醒词列表折叠
+    var showKeywords by remember { mutableStateOf(false) }
 
     // 模型导入：一个选择器，按当前待导入类别分流
     var pendingKind by remember { mutableStateOf<ModelKind?>(null) }
@@ -127,6 +131,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .swipeBackToDismiss(onBack)
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -251,13 +256,22 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     if (keywords.isEmpty()) {
                         Hint("⚠ 这个模型包里没有 keywords.txt，唤醒不会工作。请重新下载模型，或手动放入该文件。")
                     } else {
-                        Text("模型支持的唤醒词（点选）", style = MaterialTheme.typography.bodyMedium)
-                        keywords.forEach { entry ->
-                            TextButton(onClick = {
-                                vm.update {
-                                    it.copy(wakeKeyword = entry.display, wakeKeywordLines = entry.rawLine)
-                                }
-                            }) { Text(entry.display) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { showKeywords = !showKeywords }) {
+                                Text(
+                                    if (showKeywords) "收起模型支持的唤醒词（${keywords.size}）"
+                                    else "查看模型支持的唤醒词（${keywords.size}）"
+                                )
+                            }
+                        }
+                        if (showKeywords) {
+                            keywords.forEach { entry ->
+                                TextButton(onClick = {
+                                    vm.update {
+                                        it.copy(wakeKeyword = entry.display, wakeKeywordLines = entry.rawLine)
+                                    }
+                                }) { Text(entry.display) }
+                            }
                         }
                     }
                 }
@@ -325,7 +339,9 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         it.copy(
                             cloudProvider = p,
                             cloudBaseUrl = preset.baseUrl.ifBlank { it.cloudBaseUrl },
-                            cloudModel = preset.model.ifBlank { it.cloudModel }
+                            cloudModel = preset.model.ifBlank { it.cloudModel },
+                            // 书生·浦语不支持 response_format，选中它时自动关掉强制 JSON
+                            cloudForceJson = if (p == CloudProvider.INTERNLM) false else it.cloudForceJson
                         )
                     }
                 }
@@ -473,6 +489,19 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     0.2f..1f,
                     enabled = settings.floatBallEnabled
                 ) { v -> vm.update { it.copy(floatBallAlpha = v) } }
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { vm.testFloatBall() }) { Text("测试显示小球") }
+                    Text(
+                        if (uiState.floatBallVisible) "当前：已显示" else "当前：未显示",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (uiState.floatBallVisible) MaterialTheme.colorScheme.secondary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (uiState.floatBallError.isNotBlank()) {
+                    Hint("⚠ ${uiState.floatBallError}")
+                }
                 if (!SystemSettings.hasOverlay(context)) {
                     Hint("⚠ 还没有悬浮窗权限，小球不会显示。")
                     OutlinedButton(
@@ -892,6 +921,29 @@ private fun phraseChoices(raw: String): List<String> {
     val base = listOf("我在", "嗯，你说", "听着呢", "有什么吩咐", "在呢，请讲", "来啦，请说")
     return (custom + base).distinct()
 }
+
+/** 从左边缘往右滑 → 返回上一页 */
+private fun Modifier.swipeBackToDismiss(onBack: () -> Unit): Modifier =
+    this.pointerInput(Unit) {
+        val edgePx = 96.dp.toPx()
+        val thresholdPx = 140.dp.toPx()
+        var startX = 0f
+        var total = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { offset ->
+                startX = offset.x
+                total = 0f
+            },
+            onDragEnd = {
+                if (total > thresholdPx) onBack()
+                total = 0f
+            },
+            onDragCancel = { total = 0f },
+            onHorizontalDrag = { _, dragAmount ->
+                if (startX <= edgePx) total += dragAmount
+            }
+        )
+    }
 
 @Composable
 private fun Hint(text: String) {

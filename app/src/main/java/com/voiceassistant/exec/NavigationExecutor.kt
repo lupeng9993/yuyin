@@ -15,14 +15,13 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
- * 导航执行器：高德 Web API 地理编码 → 唤起高德 App 导航。
+ * 导航执行器：高德 Web API → 唤起高德 App。
  *
- * 两个坑记在这里：
- * 1. Key 的平台类型必须是「Web服务」，Android 平台的 Key 调 REST 会返回 10009。
- * 2. 2021-12-02 之后申请的 Key 必须同时带「安全密钥」(jscode)，否则返回 10008。
- *
- * 说明：文档明确排除自建后端，所以是客户端直连高德 Web API，
- * Key 与安全密钥都由用户自己申请并加密保存在本机。
+ * 关键点：
+ * 1. **先 POI 搜索**（place/text），按名字找具体地点，比地理编码准得多；
+ *    搜不到才退回地理编码（geo）。这就是"位置和想去的不是同一个地方"的修法。
+ * 2. 多个候选交给上层挑一个，不瞎猜。
+ * 3. Key 必须是「Web服务」类型；2021-12-02 之后的 Key 必须带安全密钥 jscode。
  */
 class NavigationExecutor(
     private val context: Context,
@@ -33,6 +32,7 @@ class NavigationExecutor(
         const val TAG = "Navigation"
         const val AMAP_PKG = "com.autonavi.minimap"
         const val AMAP_AUTO_PKG = "com.autonavi.amapauto"
+        const val MAX_CANDIDATES = 4
     }
 
     private val client = OkHttpClient.Builder()
@@ -40,14 +40,24 @@ class NavigationExecutor(
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    data class Geo(val lng: Double, val lat: Double)
+    data class Place(val name: String, val address: String, val lng: Double, val lat: Double)
 
-    private sealed interface GeoOutcome {
-        data class Ok(val geo: Geo, val formatted: String) : GeoOutcome
-        data class Err(val message: String, val detail: String) : GeoOutcome
-    }
+    /** 一次搜索的结果：要么有地点，要么有错误信息 */
+    private data class SearchResult(
+        val places: List<Place> = emptyList(),
+        val error: String? = null,
+        val detail: String = ""
+    )
 
-    suspend fun execute(action: VaAction): ActionResult = withContext(Dispatchers.IO) {
+    private data class Fetched(val body: String?, val error: String?, val detail: String)
+
+    /**
+     * @param chooser 多个候选时由上层决定选哪个；返回 null 表示取消
+     */
+    suspend fun execute(
+        action: VaAction,
+        chooser: suspend (List<Place>) -> Place?
+    ): ActionResult = withContext(Dispatchers.IO) {
         val dest = action.destination.trim()
         if (dest.isEmpty()) {
             return@withContext ActionResult(action, false, "没有听到目的地", "destination 为空")
@@ -56,80 +66,158 @@ class NavigationExecutor(
             return@withContext ActionResult(action, false, "还没有配置高德地图的 Key", "amapKey 为空")
         }
 
-        when (val outcome = geocode(dest)) {
-            is GeoOutcome.Err -> ActionResult(action, false, "导航失败，${outcome.message}", outcome.detail)
-            is GeoOutcome.Ok -> {
-                val launched = launchAmap(dest, outcome.geo.lng, outcome.geo.lat)
-                if (!launched) {
-                    ActionResult(action, false, "没有安装高德地图，无法导航", "未找到 $AMAP_PKG")
-                } else {
-                    ActionResult(
-                        action, true, "好的，为你导航到$dest",
-                        "lat=${outcome.geo.lat} lon=${outcome.geo.lng} addr=${outcome.formatted}"
-                    )
-                }
+        val result = search(dest)
+        if (result.error != null) {
+            return@withContext ActionResult(action, false, "导航失败，${result.error}", result.detail)
+        }
+        val places = result.places
+        when {
+            places.isEmpty() ->
+                ActionResult(action, false, "没有找到「$dest」这个地方", "POI 与地理编码都没有结果")
+
+            places.size == 1 -> launch(action, places.first())
+
+            else -> {
+                val picked = chooser(places.take(MAX_CANDIDATES))
+                if (picked == null) ActionResult(action, false, "已取消导航", "用户没有选择候选地点")
+                else launch(action, picked)
             }
         }
     }
 
-    /** 设置页「测试地点解析」用：只做地理编码，不唤起高德，失败时把原因说清楚 */
+    /** 设置页「测试地点解析」用 */
     suspend fun testGeocode(address: String): String = withContext(Dispatchers.IO) {
         if (!settings.hasAmapKey) return@withContext "还没有填高德 Key"
-        when (val outcome = geocode(address)) {
-            is GeoOutcome.Err -> "失败：${outcome.message}\n原始信息：${outcome.detail}"
-            is GeoOutcome.Ok ->
-                "成功：${outcome.formatted}\n经纬度：${outcome.geo.lng}, ${outcome.geo.lat}"
+        val result = search(address)
+        when {
+            result.error != null -> "失败：${result.error}\n原始信息：${result.detail}"
+            result.places.isEmpty() -> "连上了，但没有找到「$address」这个地点"
+            else -> "找到 ${result.places.size} 个结果：\n" +
+                result.places.joinToString("\n") { "• ${it.name} — ${it.address}（${it.lng},${it.lat}）" }
         }
     }
 
-    private fun geocode(address: String): GeoOutcome {
+    // ---------------- 搜索 ----------------
+
+    private fun search(dest: String): SearchResult {
+        val poi = searchPoi(dest)
+        if (poi.error == null && poi.places.isNotEmpty()) return poi
+
+        val geo = geocode(dest)
+        if (geo.error == null && geo.places.isNotEmpty()) return geo
+
+        // 优先报 POI 的错误（更能说明 Key/配额问题），否则报地理编码的
+        return if (poi.error != null) poi else geo
+    }
+
+    private fun searchPoi(dest: String): SearchResult {
         val url = buildString {
-            append("https://restapi.amap.com/v3/geocode/geo")
+            append("https://restapi.amap.com/v3/place/text")
             append("?key=").append(settings.amapKey.trim())
-            append("&address=").append(URLEncoder.encode(address, "UTF-8"))
-            append("&output=JSON")
-            // 新申请的 Key 必须带安全密钥，否则 10008
+            append("&keywords=").append(URLEncoder.encode(dest, "UTF-8"))
+            append("&offset=").append(MAX_CANDIDATES + 2)
+            append("&page=1&extensions=base")
             if (settings.amapSecurityKey.isNotBlank()) {
                 append("&jscode=").append(settings.amapSecurityKey.trim())
             }
         }
 
+        val fetched = fetch(url)
+        if (fetched.body == null) {
+            return SearchResult(error = fetched.error ?: "请求失败", detail = fetched.detail)
+        }
+
         return try {
-            val request = Request.Builder().url(url).get().build()
-            client.newCall(request).execute().use { response ->
+            val root = JSONObject(fetched.body)
+            val pois = root.optJSONArray("pois") ?: return SearchResult(places = emptyList())
+            val list = ArrayList<Place>(pois.length())
+            for (i in 0 until pois.length()) {
+                val obj = pois.optJSONObject(i) ?: continue
+                val name = obj.optString("name").orEmpty().trim()
+                var address = obj.optString("address").orEmpty().trim()
+                if (address == "[]") address = ""
+                val parts = obj.optString("location").orEmpty().split(',')
+                if (parts.size != 2) continue
+                val lng = parts[0].toDoubleOrNull() ?: continue
+                val lat = parts[1].toDoubleOrNull() ?: continue
+                list.add(Place(name.ifBlank { dest }, address, lng, lat))
+            }
+            DebugLog.d(TAG, "POI 搜索「$dest」得到 ${list.size} 个候选")
+            SearchResult(places = list)
+        } catch (e: Exception) {
+            DebugLog.e(TAG, "POI 解析失败", e)
+            SearchResult(error = "返回数据无法解析", detail = e.message.orEmpty())
+        }
+    }
+
+    private fun geocode(dest: String): SearchResult {
+        val url = buildString {
+            append("https://restapi.amap.com/v3/geocode/geo")
+            append("?key=").append(settings.amapKey.trim())
+            append("&address=").append(URLEncoder.encode(dest, "UTF-8"))
+            append("&output=JSON")
+            if (settings.amapSecurityKey.isNotBlank()) {
+                append("&jscode=").append(settings.amapSecurityKey.trim())
+            }
+        }
+
+        val fetched = fetch(url)
+        if (fetched.body == null) {
+            return SearchResult(error = fetched.error ?: "请求失败", detail = fetched.detail)
+        }
+
+        return try {
+            val root = JSONObject(fetched.body)
+            val geocodes = root.optJSONArray("geocodes") ?: return SearchResult()
+            if (geocodes.length() == 0) return SearchResult()
+            val first = geocodes.optJSONObject(0) ?: return SearchResult()
+            val parts = first.optString("location").orEmpty().split(',')
+            if (parts.size != 2) return SearchResult()
+            val lng = parts[0].toDoubleOrNull() ?: return SearchResult()
+            val lat = parts[1].toDoubleOrNull() ?: return SearchResult()
+            SearchResult(
+                places = listOf(
+                    Place(dest, first.optString("formatted_address").orEmpty(), lng, lat)
+                )
+            )
+        } catch (e: Exception) {
+            DebugLog.e(TAG, "地理编码解析失败", e)
+            SearchResult(error = "返回数据无法解析", detail = e.message.orEmpty())
+        }
+    }
+
+    /** 发请求 + 把高德的 status/info 翻译成人话 */
+    private fun fetch(url: String): Fetched {
+        return try {
+            val req = Request.Builder().url(url).get().build()
+            client.newCall(req).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    DebugLog.w(TAG, "地理编码 HTTP ${response.code}: $body")
-                    return GeoOutcome.Err("地图服务返回 HTTP ${response.code}", body.take(200))
+                    DebugLog.w(TAG, "HTTP ${response.code}: ${body.take(200)}")
+                    return Fetched(null, "地图服务返回 HTTP ${response.code}", body.take(200))
                 }
-                DebugLog.d(TAG, "geocode 返回: ${body.take(300)}")
-
                 val root = JSONObject(body)
                 if (root.optString("status") != "1") {
                     val info = root.optString("info", "未知错误")
                     val infocode = root.optString("infocode", "")
-                    return GeoOutcome.Err(friendly(info, infocode), "$info/$infocode")
+                    return Fetched(null, friendly(info, infocode), "$info/$infocode")
                 }
-
-                val geocodes = root.optJSONArray("geocodes") ?: return GeoOutcome.Err(
-                    "地图服务没有返回坐标", "geocodes 缺失"
-                )
-                if (geocodes.length() == 0) {
-                    return GeoOutcome.Err("没有解析到「$address」这个地点", "geocodes 为空")
-                }
-                val first = geocodes.optJSONObject(0) ?: return GeoOutcome.Err("返回数据异常", "geocodes[0] 为空")
-                val location = first.optString("location").orEmpty()
-                val parts = location.split(',')
-                if (parts.size != 2) return GeoOutcome.Err("地图返回的坐标格式异常", location)
-
-                val lng = parts[0].toDoubleOrNull() ?: return GeoOutcome.Err("经度解析失败", location)
-                val lat = parts[1].toDoubleOrNull() ?: return GeoOutcome.Err("纬度解析失败", location)
-                val formatted = first.optString("formatted_address", address)
-                GeoOutcome.Ok(Geo(lng, lat), formatted)
+                Fetched(body, null, "")
             }
         } catch (e: Exception) {
-            DebugLog.e(TAG, "地理编码异常", e)
-            GeoOutcome.Err("网络请求失败（${e.javaClass.simpleName}）", e.message.orEmpty())
+            DebugLog.e(TAG, "请求失败", e)
+            Fetched(null, "网络请求失败（${e.javaClass.simpleName}）", e.message.orEmpty())
+        }
+    }
+
+    private fun launch(action: VaAction, place: Place): ActionResult {
+        return if (launchAmap(place)) {
+            ActionResult(
+                action, true, "好的，为你导航到${place.name}",
+                "lat=${place.lat} lon=${place.lng} addr=${place.address}"
+            )
+        } else {
+            ActionResult(action, false, "没有安装高德地图，无法导航", "未找到 $AMAP_PKG")
         }
     }
 
@@ -141,20 +229,20 @@ class NavigationExecutor(
         infocode == "10009" || info == "USERKEY_PLAT_NOMATCH" ->
             "Key 的平台类型不对：必须选「Web服务」，Android 平台的 Key 用不了"
         infocode == "10007" || info == "INVALID_USER_SIGNATURE" -> "数字签名不匹配"
-        infocode == "10003" || info == "DAILY_QUERY_OVER_LIMIT" -> "超出今天的调用配额，明天再试或去控制台提高配额"
+        infocode == "10003" || info == "DAILY_QUERY_OVER_LIMIT" -> "超出今天的调用配额，明天再试"
         infocode == "10044" || info == "USER_DAILY_QUERY_OVER_LIMIT" -> "超出今天的调用配额"
         infocode == "10004" || info == "ACCESS_TOO_FREQUENT" -> "请求太频繁，稍后再试"
-        infocode == "10012" || info == "INSUFFICIENT_PRIVILEGES" -> "这个 Key 没有地理编码权限"
+        infocode == "10012" || info == "INSUFFICIENT_PRIVILEGES" -> "这个 Key 没有该服务权限"
         infocode == "10002" || info == "SERVICE_NOT_AVAILABLE" -> "高德服务暂时不可用"
         info == "INVALID_PARAMS" -> "请求参数错误（地址可能为空）"
         else -> "高德返回错误：$info"
     }
 
-    private fun launchAmap(dest: String, lng: Double, lat: Double): Boolean {
-        val encodedName = URLEncoder.encode(dest, "UTF-8")
+    private fun launchAmap(place: Place): Boolean {
+        val encodedName = URLEncoder.encode(place.name, "UTF-8")
         val naviUri = Uri.parse(
             "androidamap://navi?sourceApplication=voiceassistant&poiname=$encodedName" +
-                "&lat=$lat&lon=$lng&dev=0&style=2"
+                "&lat=${place.lat}&lon=${place.lng}&dev=0&style=2"
         )
         val intent = Intent(Intent.ACTION_VIEW, naviUri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

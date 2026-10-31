@@ -29,6 +29,13 @@ object ProviderPresets {
             model = "qwen-plus",
             hint = "百炼兼容模式地址；模型可选 qwen-plus / qwen-turbo / qwen-max。"
         ),
+        CloudProvider.INTERNLM to ProviderPreset(
+            provider = CloudProvider.INTERNLM,
+            baseUrl = "https://chat.intern-ai.org.cn/api/v1",
+            model = "intern-latest",
+            hint = "书生·浦语官方接口。它不支持 response_format 参数，所以「启用强制 JSON」会自动关闭；" +
+                "限流为每人每分钟 30 次，token 过期会报 401，需要去平台重新生成。"
+        ),
         CloudProvider.OPENAI_COMPATIBLE to ProviderPreset(
             provider = CloudProvider.OPENAI_COMPATIBLE,
             baseUrl = "",

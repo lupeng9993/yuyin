@@ -46,7 +46,11 @@ class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : C
         val content = extractContent(call.rawBody)
         if (content.isBlank()) {
             return CloudCall(
-                error = CloudError(CloudErrorKind.BAD_RESPONSE, "choices[0].message.content 为空"),
+                error = CloudError(
+                    CloudErrorKind.BAD_RESPONSE,
+                    "返回里没有 choices[0].message.content（HTTP ${call.httpCode}，" +
+                        "原始 ${call.rawBody.length} 字节：${call.rawBody.take(160)}）"
+                ),
                 httpCode = call.httpCode,
                 rawBody = call.rawBody
             )
@@ -62,7 +66,10 @@ class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : C
         sb.append("{\"role\":\"system\",\"content\":").append(jsonString(SystemPrompt.TEXT)).append("},")
         sb.append("{\"role\":\"user\",\"content\":").append(jsonString(userText)).append("}")
         sb.append("],")
-        sb.append("\"temperature\":0")
+        sb.append("\"temperature\":0,")
+        // 限住输出长度：意图解析只需要一小段 JSON，
+        // 不限的话模型可能长篇大论，20 秒都不够返回（日志里就是这么超时的）
+        sb.append("\"max_tokens\":320")
         if (forceJson) {
             sb.append(",\"response_format\":{\"type\":\"json_object\"}")
         }

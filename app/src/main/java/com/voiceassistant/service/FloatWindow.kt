@@ -52,6 +52,10 @@ class FloatWindow(
     private var aurora: AuroraRingView? = null
     private var visible = false
 
+    /** 最近一次显示失败的原因，供界面提示 */
+    var lastError: String? = null
+        private set
+
     val isVisible: Boolean get() = visible
 
     fun canShow(): Boolean =
@@ -61,6 +65,7 @@ class FloatWindow(
     fun show(): Boolean {
         if (visible) return true
         if (!canShow()) {
+            lastError = "没有「显示在其他应用上层」权限"
             DebugLog.w(TAG, "没有悬浮窗权限，无法显示小球")
             return false
         }
@@ -189,6 +194,7 @@ class FloatWindow(
             DebugLog.d(TAG, "悬浮小球已显示 alpha=$alpha")
             true
         } catch (e: Exception) {
+            lastError = "添加悬浮窗失败：${e.javaClass.simpleName} ${e.message.orEmpty()}"
             DebugLog.e(TAG, "添加悬浮窗失败", e)
             false
         }
@@ -212,36 +218,47 @@ class FloatWindow(
 
     /** 监听中：绿色点 + 文字「听」；暂停：灰色 + 「停」 */
     fun setListening(listening: Boolean) {
-        label?.text = if (listening) "听" else "停"
-        (dot?.background as? GradientDrawable)?.setColor(
-            Color.parseColor(if (listening) "#FF4CAF50" else "#FF9E9E9E")
-        )
+        runOnMain {
+            label?.text = if (listening) "听" else "停"
+            (dot?.background as? GradientDrawable)?.setColor(
+                Color.parseColor(if (listening) "#FF4CAF50" else "#FF9E9E9E")
+            )
+        }
     }
 
     /** 唤醒命中、正在听指令 → 边缘极光流动；指令处理完 → 立刻熄灭 */
     fun setAurora(active: Boolean) {
-        aurora?.active = active
+        runOnMain { aurora?.active = active }
     }
 
     fun setAlpha(value: Float) {
         alpha = value.coerceIn(0.2f, 1f)
-        rootView?.alpha = alpha
+        runOnMain { rootView?.alpha = alpha }
     }
 
     fun hide() {
-        if (!visible) return
-        aurora?.active = false
-        try {
-            rootView?.let { windowManager?.removeView(it) }
-        } catch (e: Exception) {
-            DebugLog.w(TAG, "移除悬浮窗失败: ${e.message}")
+        runOnMain {
+            if (!visible) return@runOnMain
+            aurora?.active = false
+            try {
+                rootView?.let { windowManager?.removeView(it) }
+            } catch (e: Exception) {
+                DebugLog.w(TAG, "移除悬浮窗失败: ${e.message}")
+            }
+            rootView = null
+            label = null
+            dot = null
+            aurora = null
+            visible = false
+            AppStateBus.setFloatBallVisible(false)
         }
-        rootView = null
-        label = null
-        dot = null
-        aurora = null
-        visible = false
-        AppStateBus.setFloatBallVisible(false)
+    }
+
+    /** 所有 View 操作必须在主线程 */
+    private fun runOnMain(block: () -> Unit) {
+        val main = android.os.Looper.getMainLooper()
+        if (android.os.Looper.myLooper() == main) block()
+        else android.os.Handler(main).post(block)
     }
 }
 

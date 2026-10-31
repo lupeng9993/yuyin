@@ -25,6 +25,8 @@ object AppStateBus {
         val wakeEngine: String = "",
         val wakeKeywords: List<String> = emptyList(),
         val wakeError: String = "",
+        /** 悬浮球显示失败的原因（没有权限 / addView 抛异常等） */
+        val floatBallError: String = "",
         // 调试面板
         val debugAsrText: String = "",
         val debugCloudRaw: String = "",
@@ -51,7 +53,14 @@ object AppStateBus {
     }
 
     fun setFloatBallVisible(visible: Boolean) {
-        _state.value = _state.value.copy(floatBallVisible = visible)
+        _state.value = _state.value.copy(
+            floatBallVisible = visible,
+            floatBallError = if (visible) "" else _state.value.floatBallError
+        )
+    }
+
+    fun setFloatBallError(reason: String) {
+        _state.value = _state.value.copy(floatBallError = reason)
     }
 
     fun setWakeInfo(engine: String, keywords: List<String>, error: String) {

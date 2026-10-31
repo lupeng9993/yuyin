@@ -177,6 +177,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 设置页「测试显示小球」：把结果和失败原因都写回状态，方便定位 */
+    fun testFloatBall() {
+        val ctx = getApplication<Application>()
+        if (!com.voiceassistant.util.SystemSettings.hasOverlay(ctx)) {
+            AppStateBus.setFloatBallError("没有悬浮窗权限，请先授予「显示在其他应用上层」")
+            return
+        }
+        if (!uiState.value.serviceRunning) {
+            AppStateBus.setFloatBallError("监听服务没在运行：先在首页点「开始监听」")
+            return
+        }
+        try {
+            AppStateBus.setFloatBallError("正在尝试显示…")
+            ctx.startService(
+                Intent(ctx, WakeService::class.java).setAction(WakeService.ACTION_SHOW_BALL)
+            )
+        } catch (e: Exception) {
+            AppStateBus.setFloatBallError("请求失败：${e.message}")
+        }
+    }
+
     // ---------------- 测试连接 ----------------
 
     fun testCloud(onResult: (Boolean, String) -> Unit) {

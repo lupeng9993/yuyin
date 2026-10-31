@@ -18,6 +18,10 @@
 
 - **豆包（火山方舟）**：控制台创建「推理接入点」并绑定模型，地址用 `https://ark.cn-beijing.volces.com/api/v3`，模型名填 `ep-xxxx`。
 - **通义千问（阿里云百炼）**：开通服务拿 API Key，地址用 `https://dashscope.aliyuncs.com/compatible-mode/v1`，模型用 `qwen-plus`。
+- **书生·浦语（InternLM）**：登录 [internlm.intern-ai.org.cn](https://internlm.intern-ai.org.cn/) 生成 token，
+  地址 `https://chat.intern-ai.org.cn/api/v1`，模型 `intern-latest`。
+  该接口**不支持 `response_format`**，选中服务商时会自动关闭「启用强制 JSON」；限流每人每分钟 30 次，
+  token 过期会返回 401。
 - **OpenAI 兼容**：任何支持 `/v1/chat/completions` 的服务，包括 one-api / new-api 中转、vLLM、Ollama。
 - **私有协议**：实现 `CloudAdapter` 并在 `CloudIntentService` 注册，默认会回退到兼容实现。
 

@@ -17,7 +17,9 @@ class Dispatcher(
     private val context: Context,
     private val settings: AppSettings,
     /** 语音二次确认：返回 true 表示用户确认 */
-    private val confirm: suspend (VaAction) -> Boolean
+    private val confirm: suspend (VaAction) -> Boolean,
+    /** 导航有多个候选地点时，让上层（语音/界面）挑一个 */
+    private val choosePlace: suspend (List<NavigationExecutor.Place>) -> NavigationExecutor.Place?
 ) {
 
     private companion object {
@@ -84,7 +86,7 @@ class Dispatcher(
     }
 
     private suspend fun execute(action: VaAction): ActionResult = when (action.type) {
-        ActionType.NAVIGATE -> navigation.execute(action)
+        ActionType.NAVIGATE -> navigation.execute(action, choosePlace)
         ActionType.SEND_WECHAT -> wechat.send(action)
         ActionType.OTHER -> system.execute(action)
         ActionType.UNKNOWN -> ActionResult(action, false, "无法识别该指令", action.reason)

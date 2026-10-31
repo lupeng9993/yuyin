@@ -15,6 +15,7 @@ class CloudIntentService {
     private val adapters: Map<String, CloudAdapter> = mapOf(
         CloudProvider.DOUBAO.id to OpenAiCompatibleAdapter(CloudProvider.DOUBAO.id),
         CloudProvider.QWEN.id to OpenAiCompatibleAdapter(CloudProvider.QWEN.id),
+        CloudProvider.INTERNLM.id to OpenAiCompatibleAdapter(CloudProvider.INTERNLM.id),
         CloudProvider.OPENAI_COMPATIBLE.id to OpenAiCompatibleAdapter(CloudProvider.OPENAI_COMPATIBLE.id),
         // 私有协议暂用兼容实现兜底，实现自定义适配器后在这里替换即可
         CloudProvider.PRIVATE.id to OpenAiCompatibleAdapter(CloudProvider.PRIVATE.id)

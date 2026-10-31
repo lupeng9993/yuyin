@@ -1,5 +1,6 @@
 package com.voiceassistant.exec
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -8,6 +9,7 @@ import android.view.KeyEvent
 import com.voiceassistant.log.DebugLog
 import com.voiceassistant.nlu.VaAction
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
@@ -30,6 +32,7 @@ class SystemExecutor(private val context: Context) {
         data object Mute : Command
         data object Screenshot : Command
         data class OpenApp(val query: String) : Command
+        data class CloseApp(val query: String) : Command
         data object PlayPause : Command
         data object Next : Command
         data object Previous : Command
@@ -46,7 +49,16 @@ class SystemExecutor(private val context: Context) {
             is Command.VolumeDown -> setVolumeAdjust(AudioManager.ADJUST_LOWER, action, "音量已调低")
             is Command.Mute -> {
                 val am = audio()
-                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, AudioManager.FLAG_SHOW_UI)
+                try {
+                    @Suppress("DEPRECATION")
+                    am.adjustSuggestedStreamVolume(
+                        AudioManager.ADJUST_MUTE,
+                        AudioManager.USE_DEFAULT_STREAM_TYPE,
+                        AudioManager.FLAG_SHOW_UI
+                    )
+                } catch (e: Exception) {
+                    am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, AudioManager.FLAG_SHOW_UI)
+                }
                 ActionResult(action, true, "已静音", "ADJUST_MUTE")
             }
             is Command.VolumeSet -> {
@@ -58,6 +70,7 @@ class SystemExecutor(private val context: Context) {
             }
             is Command.Screenshot -> takeScreenshot(action)
             is Command.OpenApp -> openApp(action, command.query)
+            is Command.CloseApp -> closeApp(action, command.query)
             is Command.PlayPause -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, "已切换播放状态")
             is Command.Next -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_NEXT, "已切到下一首")
             is Command.Previous -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PREVIOUS, "已切到上一首")
@@ -69,7 +82,15 @@ class SystemExecutor(private val context: Context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     private fun setVolumeAdjust(direction: Int, action: VaAction, speech: String): ActionResult {
-        audio().adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+        val am = audio()
+        // 用「建议流」：和音量键一样作用于当前正在出声的那个流，
+        // 这样在别的 App 里播着音乐时也能真的调它，而不是只影响本应用
+        try {
+            @Suppress("DEPRECATION")
+            am.adjustSuggestedStreamVolume(direction, AudioManager.USE_DEFAULT_STREAM_TYPE, AudioManager.FLAG_SHOW_UI)
+        } catch (e: Exception) {
+            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+        }
         return ActionResult(action, true, speech, "ADJUST_$direction")
     }
 
@@ -105,6 +126,32 @@ class SystemExecutor(private val context: Context) {
         } catch (e: Exception) {
             DebugLog.e(TAG, "启动应用失败", e)
             ActionResult(action, false, "打开「$query」失败", e.message.orEmpty())
+        }
+    }
+
+    private suspend fun closeApp(action: VaAction, query: String): ActionResult {
+        val pkg = AppLauncher.resolve(context, query)
+        if (pkg == null) {
+            val near = AppLauncher.suggestions(context, query)
+            val speech = if (near.isEmpty()) "没找到「$query」这个应用"
+            else "没找到「$query」，是想关闭${near.joinToString("、")}吗"
+            return ActionResult(action, false, speech, "未匹配到包名，候选=$near")
+        }
+
+        return try {
+            // 应用在前台时，系统不允许直接杀掉，先回桌面
+            if (A11yBridge.isReady()) {
+                A11yBridge.home()
+                delay(300)
+            }
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            am.killBackgroundProcesses(pkg)
+            val label = AppLauncher.labelOf(context, pkg) ?: query
+            DebugLog.d(TAG, "已关闭 $pkg")
+            ActionResult(action, true, "已关闭$label", "pkg=$pkg")
+        } catch (e: Exception) {
+            DebugLog.e(TAG, "关闭应用失败", e)
+            ActionResult(action, false, "关闭「$query」失败", e.message.orEmpty())
         }
     }
 
@@ -153,16 +200,29 @@ class SystemExecutor(private val context: Context) {
         if (t.contains("下一首") || t.contains("切歌")) return Command.Next
         if (t.contains("上一首")) return Command.Previous
 
+        // 关闭应用
+        val closeMatch = Regex("^(?:关闭|关掉|退出|杀掉|结束|关)(.+)$").find(t)
+        if (closeMatch != null) {
+            val target = cleanTarget(closeMatch.groupValues[1])
+            if (target.isNotEmpty()) return Command.CloseApp(target)
+        }
+
         // 打开应用
         val openMatch = Regex("^(?:打开|开启|启动|运行)(.+)$").find(t)
         if (openMatch != null) {
-            val target = openMatch.groupValues[1]
-                .removeSuffix("吧").removeSuffix("一下").trim()
+            val target = cleanTarget(openMatch.groupValues[1])
             if (target.isNotEmpty()) return Command.OpenApp(target)
         }
 
         return Command.Unsupported
     }
+
+    private fun cleanTarget(raw: String): String = raw
+        .removeSuffix("吧")
+        .removeSuffix("一下")
+        .removeSuffix("应用")
+        .removeSuffix("软件")
+        .trim()
 
     /** 支持「调到30%」「调到三十」「音量50」这几种说法 */
     private fun extractPercent(text: String): Int? {
