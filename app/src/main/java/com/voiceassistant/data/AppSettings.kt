@@ -32,6 +32,8 @@ data class AppSettings(
     val wakeKeyword: String = DEFAULT_WAKE_KEYWORD,
     /** KWS 触发阈值 0..1，越大越不敏感 */
     val wakeThreshold: Float = 0.25f,
+    /** 自定义唤醒关键词行（KWS 原始格式，形如 "x iǎo zhù shǒu @小助手"）；空表示用模型自带 keywords.txt */
+    val wakeKeywordLine: String = "",
     val wakeModelDir: String = "",
     val asrEnabled: Boolean = true,
     val asrModelDir: String = "",

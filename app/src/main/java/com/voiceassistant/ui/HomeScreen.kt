@@ -86,7 +86,10 @@ fun HomeScreen(vm: AppViewModel, onOpenSettings: () -> Unit) {
                 paused = state.paused,
                 cloudEnabled = settings.cloudEnabled,
                 micGranted = micGranted,
-                keyword = settings.wakeKeyword
+                keyword = settings.wakeKeyword,
+                wakeEngine = state.wakeEngine,
+                wakeKeywords = state.wakeKeywords,
+                wakeError = state.wakeError
             )
 
             Box(
@@ -166,7 +169,10 @@ private fun StatusCard(
     paused: Boolean,
     cloudEnabled: Boolean,
     micGranted: Boolean,
-    keyword: String
+    keyword: String,
+    wakeEngine: String,
+    wakeKeywords: List<String>,
+    wakeError: String
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -189,7 +195,23 @@ private fun StatusCard(
                 value = if (micGranted) "已授权" else "未授权",
                 good = micGranted
             )
-            StatusRow(label = "唤醒词", value = keyword, good = true)
+            // 唤醒引擎的真实状态：说唤醒词没反应时，先看这两行
+            StatusRow(
+                label = "唤醒引擎",
+                value = when {
+                    wakeError.isNotBlank() -> "异常"
+                    wakeEngine.isBlank() || wakeEngine == "none" -> "未加载"
+                    else -> wakeEngine
+                },
+                good = wakeError.isBlank() && wakeEngine.isNotBlank() && wakeEngine != "none"
+            )
+            val kwText = when {
+                wakeError.isNotBlank() -> wakeError
+                wakeKeywords.isEmpty() -> "未加载关键词"
+                else -> wakeKeywords.take(3).joinToString("、")
+            }
+            StatusRow(label = "可用唤醒词", value = kwText, good = wakeKeywords.isNotEmpty() && wakeError.isBlank())
+            StatusRow(label = "当前唤醒词", value = keyword, good = true)
         }
     }
 }

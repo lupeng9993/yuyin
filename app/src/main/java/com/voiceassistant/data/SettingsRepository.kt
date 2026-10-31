@@ -58,6 +58,7 @@ class SettingsRepository private constructor(context: Context) {
             wakeEnabled = prefs[K.wakeEnabled] ?: default.wakeEnabled,
             wakeKeyword = prefs[K.wakeKeyword] ?: default.wakeKeyword,
             wakeThreshold = prefs[K.wakeThreshold] ?: default.wakeThreshold,
+            wakeKeywordLine = prefs[K.wakeKeywordLine] ?: default.wakeKeywordLine,
             wakeModelDir = prefs[K.wakeModelDir] ?: default.wakeModelDir,
             asrEnabled = prefs[K.asrEnabled] ?: default.asrEnabled,
             asrModelDir = prefs[K.asrModelDir] ?: default.asrModelDir,
@@ -93,6 +94,7 @@ class SettingsRepository private constructor(context: Context) {
         m[K.wakeEnabled] = s.wakeEnabled
         m[K.wakeKeyword] = s.wakeKeyword
         m[K.wakeThreshold] = s.wakeThreshold
+        m[K.wakeKeywordLine] = s.wakeKeywordLine
         m[K.wakeModelDir] = s.wakeModelDir
         m[K.asrEnabled] = s.asrEnabled
         m[K.asrModelDir] = s.asrModelDir
@@ -127,6 +129,7 @@ class SettingsRepository private constructor(context: Context) {
         val wakeEnabled = booleanPreferencesKey("wake_enabled")
         val wakeKeyword = stringPreferencesKey("wake_keyword")
         val wakeThreshold = floatPreferencesKey("wake_threshold")
+        val wakeKeywordLine = stringPreferencesKey("wake_keyword_line")
         val wakeModelDir = stringPreferencesKey("wake_model_dir")
         val asrEnabled = booleanPreferencesKey("asr_enabled")
         val asrModelDir = stringPreferencesKey("asr_model_dir")

@@ -21,6 +21,10 @@ object AppStateBus {
         val lastIntent: String = "",
         val lastResult: String = "",
         val lastSource: String = "",
+        // 唤醒引擎状态（诊断「说了没反应」用）
+        val wakeEngine: String = "",
+        val wakeKeywords: List<String> = emptyList(),
+        val wakeError: String = "",
         // 调试面板
         val debugAsrText: String = "",
         val debugCloudRaw: String = "",
@@ -48,6 +52,14 @@ object AppStateBus {
 
     fun setFloatBallVisible(visible: Boolean) {
         _state.value = _state.value.copy(floatBallVisible = visible)
+    }
+
+    fun setWakeInfo(engine: String, keywords: List<String>, error: String) {
+        _state.value = _state.value.copy(
+            wakeEngine = engine,
+            wakeKeywords = keywords,
+            wakeError = error
+        )
     }
 
     fun onRecognized(text: String, plan: ActionPlan) {

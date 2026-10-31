@@ -40,6 +40,14 @@ object ModelRepository {
         return base.listFiles()?.filter { it.isDirectory } ?: emptyList()
     }
 
+    /** 已安装模型的名字集合（目录名 == 模型 id） */
+    fun installedNames(context: Context, kind: ModelKind): Set<String> =
+        installed(context, kind).mapNotNull { it.name }.toSet()
+
+    /** 界面上只显示模型名，不暴露长路径 */
+    fun nameOf(path: String): String =
+        if (path.isBlank()) "未选择" else File(path).name.ifBlank { path }
+
     /** 判断一个模型目录是否至少含有一个 onnx 文件 */
     fun looksLikeModel(dir: File): Boolean {
         return dir.isDirectory && dir.listFiles()?.any { it.name.endsWith(".onnx", true) } == true

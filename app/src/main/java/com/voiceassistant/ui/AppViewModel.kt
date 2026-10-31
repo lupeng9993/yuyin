@@ -29,6 +29,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     data class DownloadState(
         val entryId: String? = null,
         val percent: Int = 0,
+        val stage: String = "",
         val running: Boolean = false,
         val message: String? = null
     )
@@ -47,7 +48,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch {
             val dir = engine.download(entry) { progress ->
-                _download.value = _download.value.copy(percent = progress.percent)
+                val stage = when (progress.stage) {
+                    com.voiceassistant.model.ModelDownloader.Progress.Stage.DOWNLOAD -> "下载中"
+                    com.voiceassistant.model.ModelDownloader.Progress.Stage.EXTRACT -> "解压中"
+                }
+                _download.value = _download.value.copy(percent = progress.percent, stage = stage)
             }
             downloader = null
             if (dir == null) {
@@ -75,6 +80,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         downloader?.cancel()
         downloader = null
         _download.value = _download.value.copy(running = false, message = "已取消下载")
+    }
+
+    /** 点"已安装"的模型时，把它设为当前使用 */
+    fun selectModel(entry: com.voiceassistant.model.ModelCatalog.Entry) {
+        val ctx = getApplication<Application>()
+        val path = com.voiceassistant.model.ModelRepository.dir(ctx, entry.kind, entry.id).absolutePath
+        viewModelScope.launch {
+            repo.update { s ->
+                when (entry.kind) {
+                    com.voiceassistant.model.ModelKind.KWS -> s.copy(wakeModelDir = path)
+                    com.voiceassistant.model.ModelKind.ASR -> s.copy(asrModelDir = path)
+                    com.voiceassistant.model.ModelKind.VAD -> s.copy(vadModelPath = path)
+                    com.voiceassistant.model.ModelKind.TTS -> s.copy(ttsModelDir = path)
+                }
+            }
+            _download.value = DownloadState(message = "已切换：${entry.title}", percent = 100)
+        }
     }
 
     fun dismissDownloadMessage() {

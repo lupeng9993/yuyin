@@ -75,7 +75,8 @@ class RuleEngineTest {
         val sentence = (1..7).joinToString("，") { "打开应用$it" }
         val match = RuleEngine.matchLocal(sentence)
         assertNotNull(match)
-        assertEquals(ActionPlan.MAX_ACTIONS, match!!.plan.actions.size)
-        assertTrue(match.truncated > 0)
+        val hit = match!!
+        assertEquals(ActionPlan.MAX_ACTIONS, hit.plan.actions.size)
+        assertTrue(hit.truncated > 0)
     }
 }

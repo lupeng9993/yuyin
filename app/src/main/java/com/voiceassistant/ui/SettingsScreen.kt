@@ -129,6 +129,14 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 Text("设置", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             }
 
+            if (downloadState.running) {
+                Text(
+                    "后台${downloadState.stage}：${downloadState.percent}%  （可关掉弹窗，下载会继续）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
             // ---------------- 分组一 ----------------
             GroupCard("唤醒与音频", "唤醒词、模型、音频", expandWake, onToggle = { expandWake = !expandWake }) {
                 SwitchRow(
@@ -143,7 +151,33 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     "例如：你好小助手",
                     enabled = settings.wakeEnabled
                 ) { v -> vm.update { it.copy(wakeKeyword = v) } }
-                Hint("唤醒词是纯文本，改词不需要重新训练模型；保存后需重启监听生效。")
+                Hint("唤醒词由模型的 keywords.txt 决定。下面列出这个模型真正支持的词，点一下即生效。")
+
+                if (settings.wakeModelDir.isBlank()) {
+                    Hint("还没选唤醒模型，先「应用内下载」或「导入本地文件」。")
+                } else {
+                    val keywords = remember(settings.wakeModelDir) {
+                        com.voiceassistant.model.KwsKeywords.read(settings.wakeModelDir)
+                    }
+                    if (keywords.isEmpty()) {
+                        Hint("⚠ 这个模型包里没有 keywords.txt，唤醒不会工作。请重新下载模型，或手动放入该文件。")
+                    } else {
+                        Text("模型支持的唤醒词（点选）", style = MaterialTheme.typography.bodyMedium)
+                        keywords.forEach { entry ->
+                            TextButton(onClick = {
+                                vm.update {
+                                    it.copy(wakeKeyword = entry.display, wakeKeywordLine = entry.rawLine)
+                                }
+                            }) { Text(entry.display) }
+                        }
+                    }
+                }
+
+                FieldRow(
+                    "自定义关键词行（高级）",
+                    settings.wakeKeywordLine,
+                    "留空 = 用模型自带 keywords.txt"
+                ) { v -> vm.update { it.copy(wakeKeywordLine = v) } }
 
                 SliderRow(
                     "唤醒灵敏度",
@@ -336,6 +370,16 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 SwitchRow("悬浮小球", "常驻监听入口，也是 Android 14 后台启动麦克风的豁免条件", settings.floatBallEnabled) { v ->
                     vm.update { it.copy(floatBallEnabled = v) }
                 }
+                if (!SystemSettings.hasOverlay(context)) {
+                    Hint("⚠ 还没有悬浮窗权限，小球不会显示。")
+                    OutlinedButton(
+                        onClick = { SystemSettings.open(context, SystemSettings.overlayIntent(context)) }
+                    ) { Text("去授予悬浮窗权限") }
+                } else if (!uiState.serviceRunning) {
+                    Hint("权限已授予。小球只在监听服务运行时出现——回首页点「开始监听」。")
+                } else {
+                    Hint("权限已授予、服务在运行，小球应出现在屏幕右侧边缘。")
+                }
                 SwitchRow("开机自启", "有悬浮窗权限时会尝试自启，失败静默", settings.bootAutoStart) { v ->
                     vm.update { it.copy(bootAutoStart = v) }
                 }
@@ -386,6 +430,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             kind = kind,
             progress = downloadState,
             onDownload = { entry -> vm.downloadModel(entry) },
+            onSelect = { entry -> vm.selectModel(entry) },
             onCancelDownload = { vm.cancelDownload() },
             onDismiss = {
                 vm.dismissDownloadMessage()
@@ -409,42 +454,56 @@ private fun ModelDownloadDialog(
     kind: ModelKind,
     progress: AppViewModel.DownloadState,
     onDownload: (com.voiceassistant.model.ModelCatalog.Entry) -> Unit,
+    onSelect: (com.voiceassistant.model.ModelCatalog.Entry) -> Unit,
     onCancelDownload: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val entries = remember(kind) { com.voiceassistant.model.ModelCatalog.byKind(kind) }
+    // 进度或开关变化时刷新「已安装」状态
+    val installed = remember(kind, progress.running, progress.percent, progress.entryId) {
+        ModelRepository.installedNames(context, kind)
+    }
 
     AlertDialog(
-        onDismissRequest = { if (!progress.running) onDismiss() },
-        title = { Text("下载${kind.label}") },
+        // 允许直接关掉弹窗，下载在后台继续跑
+        onDismissRequest = onDismiss,
+        title = { Text(kind.label) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "从 sherpa-onnx 官方 Releases 下载，解压到应用私有目录；仓库和 APK 里不含模型。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 entries.forEach { entry ->
+                    val isCurrent = progress.running && progress.entryId == entry.id
+                    val isInstalled = installed.contains(entry.id)
                     Column {
-                        Text("${entry.title} · 约 ${entry.approxMb} MB", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${entry.title} · ${entry.approxMb} MB",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                         Text(
                             entry.note,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (progress.running && progress.entryId == entry.id) {
-                            Text("下载中 ${progress.percent}%", style = MaterialTheme.typography.bodySmall)
-                        } else {
-                            TextButton(
+                        when {
+                            isCurrent -> Text(
+                                if (progress.stage == "解压中") "解压中…（模型越大越久，请稍等）"
+                                else "${progress.stage} ${progress.percent}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            isInstalled -> TextButton(onClick = { onSelect(entry) }) {
+                                Text("已安装 · 点此使用")
+                            }
+                            else -> TextButton(
                                 onClick = { onDownload(entry) },
                                 enabled = !progress.running
-                            ) { Text("下载这个") }
+                            ) { Text("下载") }
                         }
                     }
                     Divider()
                 }
-                if (progress.message != null) {
-                    Text(progress.message, style = MaterialTheme.typography.bodySmall)
+                progress.message?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall)
                 }
             }
         },
@@ -600,9 +659,10 @@ private fun PathRow(
     Column {
         Text(label, style = MaterialTheme.typography.bodyMedium)
         Text(
-            path.ifBlank { "未选择" },
+            ModelRepository.nameOf(path),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (path.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant
+            else MaterialTheme.colorScheme.secondary
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onPick) { Text("导入本地文件") }

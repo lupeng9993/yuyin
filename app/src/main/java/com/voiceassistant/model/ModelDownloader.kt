@@ -36,7 +36,9 @@ class ModelDownloader(private val context: Context) {
         cancelled = true
     }
 
-    data class Progress(val downloadedBytes: Long, val totalBytes: Long) {
+    data class Progress(val stage: Stage, val downloadedBytes: Long, val totalBytes: Long) {
+        enum class Stage { DOWNLOAD, EXTRACT }
+
         val percent: Int
             get() = if (totalBytes <= 0) 0 else ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
     }
@@ -79,15 +81,17 @@ class ModelDownloader(private val context: Context) {
                         val now = System.currentTimeMillis()
                         if (now - lastReport > 300) {
                             lastReport = now
-                            onProgress(Progress(downloaded, total))
+                            onProgress(Progress(Progress.Stage.DOWNLOAD, downloaded, total))
                         }
                     }
                 }
-                onProgress(Progress(downloaded, total))
+                onProgress(Progress(Progress.Stage.DOWNLOAD, downloaded, total))
             }
 
             if (cancelled) return@withContext null
 
+            // 解压阶段可能持续几十秒（230 MB 的模型更久），必须给用户一个明确状态
+            onProgress(Progress(Progress.Stage.EXTRACT, 0, 0))
             DebugLog.d(TAG, "下载完成，开始解压到 ${targetDir.absolutePath}")
             val ok = extractBz2Tar(archive, targetDir)
             archive.delete()

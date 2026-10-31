@@ -168,14 +168,26 @@ class WakeService : Service() {
                     updated.asrModelDir != settings.asrModelDir ||
                     updated.ttsEngine != settings.ttsEngine ||
                     updated.ttsModelDir != settings.ttsModelDir ||
-                    updated.wakeKeyword != settings.wakeKeyword
+                    updated.wakeKeyword != settings.wakeKeyword ||
+                    updated.wakeKeywordLine != settings.wakeKeywordLine
                 settings = updated
                 if (enginesChanged) {
                     DebugLog.d(TAG, "配置变化，重建引擎")
                     rebuildEngines()
                 }
+                syncFloatBall()
                 updateNotification()
             }
+        }
+    }
+
+    /** 悬浮球开关变化时立即生效，不用重启服务 */
+    private fun syncFloatBall() {
+        if (settings.floatBallEnabled) {
+            if (floatWindow?.isVisible != true) showFloatBall()
+            floatWindow?.setListening(!paused)
+        } else {
+            hideFloatBall()
         }
     }
 
@@ -189,7 +201,23 @@ class WakeService : Service() {
                 vad = EngineFactory.createVad(this@WakeService, settings)
                 DebugLog.d(TAG, "引擎就绪: wake=${wake?.name} asr=${asr?.name} tts=${speak?.name} vad=${vad?.name}")
             }
+            publishWakeInfo()
         }
+    }
+
+    /** 把唤醒引擎的真实状态（引擎名、可用关键词、错误）推给界面 */
+    private fun publishWakeInfo() {
+        val engine = wake
+        val kws = engine as? com.voiceassistant.service.wake.KwsEngine
+        val keywords = kws?.keywordLines?.map { line ->
+            val display = line.substringAfterLast('@', "").trim()
+            if (display.isNotEmpty()) display else line
+        } ?: emptyList()
+        val error = kws?.error
+            ?: (engine as? com.voiceassistant.service.engine.NoopWakeEngine)?.reason()
+            ?: ""
+        AppStateBus.setWakeInfo(engine?.name ?: "none", keywords, error)
+        DebugLog.d(TAG, "唤醒状态: engine=${engine?.name} keywords=$keywords error=$error")
     }
 
     private fun startAudio() {
