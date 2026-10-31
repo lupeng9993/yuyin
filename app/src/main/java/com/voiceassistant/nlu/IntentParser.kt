@@ -56,7 +56,7 @@ object IntentParser {
     private fun parseOne(obj: JSONObject): VaAction {
         val wire = obj.optString("action", "").trim()
         val type = ActionType.fromWire(wire)
-            ?: return VaAction.unknown("不支持的动作类型：${wire.ifEmpty("空")}")
+            ?: return VaAction.unknown("不支持的动作类型：${wire.ifEmpty { "空" }}")
 
         return when (type) {
             ActionType.NAVIGATE -> {
