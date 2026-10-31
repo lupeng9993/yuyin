@@ -1,0 +1,92 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build debug + release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 直接用运行器自带的 Android SDK。
+      # 不要用 android-actions/setup-android@v3：它会执行 `sdkmanager tools`，
+      # 新版 cmdline-tools 已没有 tools 包，必然失败。
+      - name: Install Android SDK packages
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          "$SDKMANAGER" --version
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Install Gradle 8.9
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/gradle.zip" https://services.gradle.org/distributions/gradle-8.9-bin.zip
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.9/bin" >> "$GITHUB_PATH"
+
+      # 推理库（约 49 MB）不入库，构建时下载；模型永远不进 APK。
+      - name: Fetch sherpa-onnx AAR
+        run: bash scripts/fetch-sherpa-onnx.sh
+
+      # 有签名材料才签 release，没有就出未签名包，构建不会失败。
+      - name: Prepare signing material
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            echo "==> 使用 Secrets 中的签名材料"
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore"
+              echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "KEY_ALIAS=$KEY_ALIAS"
+              echo "KEY_PASSWORD=$KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+          else
+            echo "==> 没有 KEYSTORE_BASE64，release 将产出未签名包"
+          fi
+
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Build release APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: voiceassistant-debug
+          path: 'app/build/outputs/apk/debug/*.apk'
+          if-no-files-found: error
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: voiceassistant-release
+          path: 'app/build/outputs/apk/release/*.apk'
+          if-no-files-found: warn
