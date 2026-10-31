@@ -33,7 +33,7 @@ object EngineFactory {
             return NoopWakeEngine("未导入唤醒模型")
         }
         return try {
-            KwsEngine(context, dir, settings.wakeThreshold, settings.wakeKeywordLine)
+            KwsEngine(context, dir, settings.wakeThreshold, settings.wakeKeywordLines)
         } catch (e: Exception) {
             DebugLog.e(TAG, "创建唤醒引擎失败", e)
             NoopWakeEngine("唤醒引擎初始化失败")

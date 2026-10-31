@@ -28,12 +28,23 @@ enum class CloudProvider(val id: String, val label: String) {
 data class AppSettings(
     // ---- 分组一：唤醒与音频 ----
     val wakeEnabled: Boolean = false,
+    /** 唤醒后先用一句话应答（"我在"、"有什么吩咐"…），再开始听指令 */
+    val wakeAckEnabled: Boolean = true,
+    /** 欢迎词列表，一行一句；留空用内置默认 */
+    val wakeAckPhrases: String = "",
+    /** random = 随机，fixed = 固定用 [wakeAckFixed] */
+    val wakeAckMode: String = "random",
+    val wakeAckFixed: String = "",
+    /** 结束语列表，一行一句；留空用内置默认 */
+    val farewellPhrases: String = "",
+    /** 听到「再见/结束对话」时回一句告别 */
+    val farewellEnabled: Boolean = true,
     /** 唤醒词，纯文本，可随时改；改词不需要重训模型 */
     val wakeKeyword: String = DEFAULT_WAKE_KEYWORD,
     /** KWS 触发阈值 0..1，越大越不敏感 */
     val wakeThreshold: Float = 0.25f,
-    /** 自定义唤醒关键词行（KWS 原始格式，形如 "x iǎo zhù shǒu @小助手"）；空表示用模型自带 keywords.txt */
-    val wakeKeywordLine: String = "",
+    /** 自定义唤醒关键词行（多行，每行一个 KWS 关键词；空表示只用模型自带 keywords.txt） */
+    val wakeKeywordLines: String = "",
     val wakeModelDir: String = "",
     val asrEnabled: Boolean = true,
     val asrModelDir: String = "",
@@ -55,6 +66,8 @@ data class AppSettings(
     // ---- 分组三：技能 ----
     val navEnabled: Boolean = false,
     val amapKey: String = "",
+    /** 高德「安全密钥」(jscode)：2021-12-02 之后新申请的 Key 必填 */
+    val amapSecurityKey: String = "",
     val navConfirm: Boolean = false,
     val wechatEnabled: Boolean = false,
     val wechatForceConfirm: Boolean = true,
@@ -71,7 +84,9 @@ data class AppSettings(
     // ---- 分组四：系统与调试 ----
     val debugMode: Boolean = false,
     val bootAutoStart: Boolean = false,
-    val floatBallEnabled: Boolean = false
+    val floatBallEnabled: Boolean = false,
+    /** 悬浮球透明度 0.2–1.0 */
+    val floatBallAlpha: Float = 0.85f
 ) {
     val hasCloudKey: Boolean get() = cloudApiKey.isNotBlank()
     val hasAmapKey: Boolean get() = amapKey.isNotBlank()

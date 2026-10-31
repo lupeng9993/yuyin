@@ -32,7 +32,7 @@ object RuleEngine {
 
     /** 系统 / 应用控制类，整句捕获后交给系统执行器细分 */
     private val systemControl = Regex(
-        "^(?:帮我|请)?\\s*(?:" +
+        "^(?:帮我|请|麻烦)?\\s*(?:" +
             "打开|开启|启动|关闭|退出|" +
             "调高|调低|调大|调小|提高|降低|设置|调到|设为|" +
             "静音|取消静音|截屏|截图|屏幕截图|" +
@@ -41,6 +41,17 @@ object RuleEngine {
     )
 
     private val volumeWord = Regex("^(?:把)?音量.*$")
+
+    /** 口语里常见的前缀噪音，匹配前先剥掉：「给我打开抖音」「嗯，那个打开设置」 */
+    private val fillerPrefix = Regex(
+        "^(?:嗯+|那个|就是|帮我|帮我给|给我|帮忙|请|麻烦|你|能|能不能|可以|可不可以|我想|我要)+"
+    )
+
+    /** 「把抖音打开」这种倒装句（只处理打开类动词，关闭类不做也别乱猜） */
+    private val baForm = Regex("^把(.{1,20}?)(打开|开启|启动|运行)$")
+
+    /** 宽松兜底：句子中间出现「打开/启动/开启」也算系统控制 */
+    private val looseOpen = Regex("(打开|开启|启动|运行)\\s*(.{1,20})$")
 
     data class Match(val plan: ActionPlan, val truncated: Int = 0)
 
@@ -89,9 +100,30 @@ object RuleEngine {
     }
 
     private fun matchSystem(clause: String): VaAction? {
-        if (systemControl.matches(clause) || volumeWord.matches(clause)) {
-            return VaAction(ActionType.OTHER, rawText = clause)
+        // 1. 先剥掉口语前缀噪音再匹配
+        val stripped = clause.replace(fillerPrefix, "").trim()
+        val target = if (stripped.isEmpty()) clause else stripped
+
+        if (systemControl.matches(target) || volumeWord.matches(target)) {
+            return VaAction(ActionType.OTHER, rawText = target)
         }
+
+        // 2. 倒装：「把抖音打开」
+        baForm.find(target)?.let { m ->
+            val what = m.groupValues[1].trim()
+            if (what.isNotEmpty()) {
+                return VaAction(ActionType.OTHER, rawText = "打开$what")
+            }
+        }
+
+        // 3. 宽松兜底：句中含「打开/启动/开启 + 内容」
+        looseOpen.find(target)?.let { m ->
+            val what = m.groupValues[2].trim()
+            if (what.isNotEmpty()) {
+                return VaAction(ActionType.OTHER, rawText = "打开$what")
+            }
+        }
+
         return null
     }
 

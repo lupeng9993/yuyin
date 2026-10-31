@@ -82,6 +82,16 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
     var infoMessage by remember { mutableStateOf<String?>(null) }
     val downloadState by vm.download.collectAsState()
 
+    // 标签式手风琴
+    var activeTag by remember { mutableStateOf(0) }
+    // 添加唤醒词弹窗
+    var showAddKeyword by remember { mutableStateOf(false) }
+    var newKeywordDisplay by remember { mutableStateOf("") }
+    var newKeywordPinyin by remember { mutableStateOf("") }
+    var keywordMsg by remember { mutableStateOf<String?>(null) }
+    // 欢迎词下拉
+    var ackMenuOpen by remember { mutableStateOf(false) }
+
     // 模型导入：一个选择器，按当前待导入类别分流
     var pendingKind by remember { mutableStateOf<ModelKind?>(null) }
 
@@ -137,6 +147,29 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 )
             }
 
+            // 标签：点一下就只展开对应分组，其余自动收起
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("唤醒", "云端", "技能", "系统").forEachIndexed { index, label ->
+                    val selected = activeTag == index
+                    val onClick: () -> Unit = {
+                        activeTag = index
+                        expandWake = index == 0
+                        expandCloud = index == 1
+                        expandSkills = index == 2
+                        expandSystem = index == 3
+                    }
+                    if (selected) {
+                        Button(onClick = onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
+                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    } else {
+                        OutlinedButton(onClick = onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
+                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+
             // ---------------- 分组一 ----------------
             GroupCard("唤醒与音频", "唤醒词、模型、音频", expandWake, onToggle = { expandWake = !expandWake }) {
                 SwitchRow(
@@ -144,6 +177,62 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     "总开关，关闭后前台服务不采集音频",
                     settings.wakeEnabled
                 ) { v -> vm.update { it.copy(wakeEnabled = v) } }
+
+                SwitchRow(
+                    "唤醒后语音应答",
+                    "说「我在」「有什么吩咐」之类的随机应答，然后再听指令",
+                    settings.wakeAckEnabled,
+                    settings.wakeEnabled
+                ) { v -> vm.update { it.copy(wakeAckEnabled = v) } }
+                Hint("如果你习惯连着说「唤醒词+指令」，可以关掉它，否则开头一两个字可能被应答声盖过去。")
+
+                SwitchRow(
+                    "结束对话应答",
+                    "说「再见」「结束对话」「不用了」时随机回一句告别",
+                    settings.farewellEnabled,
+                    settings.wakeEnabled
+                ) { v -> vm.update { it.copy(farewellEnabled = v) } }
+
+                Divider(Modifier.padding(vertical = 6.dp))
+                Text("欢迎词（唤醒后先说这句）", style = MaterialTheme.typography.bodyMedium)
+                Column {
+                    OutlinedButton(onClick = { ackMenuOpen = true }) {
+                        Text(
+                            if (settings.wakeAckMode == "fixed" && settings.wakeAckFixed.isNotBlank())
+                                "固定：${settings.wakeAckFixed}"
+                            else "随机（一半概率带时间问候）"
+                        )
+                    }
+                    DropdownMenu(expanded = ackMenuOpen, onDismissRequest = { ackMenuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("随机") },
+                            onClick = {
+                                ackMenuOpen = false
+                                vm.update { it.copy(wakeAckMode = "random") }
+                            }
+                        )
+                        phraseChoices(settings.wakeAckPhrases).forEach { p ->
+                            DropdownMenuItem(
+                                text = { Text("固定：$p") },
+                                onClick = {
+                                    ackMenuOpen = false
+                                    vm.update { it.copy(wakeAckMode = "fixed", wakeAckFixed = p) }
+                                }
+                            )
+                        }
+                    }
+                }
+                TextAreaRow(
+                    "自定义欢迎词列表",
+                    settings.wakeAckPhrases,
+                    "一行一句，留空用内置 6 句；例如：老板我在"
+                ) { v -> vm.update { it.copy(wakeAckPhrases = v) } }
+
+                TextAreaRow(
+                    "自定义结束语列表",
+                    settings.farewellPhrases,
+                    "一行一句，留空用内置 6 句；例如：那我先去忙了"
+                ) { v -> vm.update { it.copy(farewellPhrases = v) } }
 
                 FieldRow(
                     "唤醒词",
@@ -166,18 +255,22 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         keywords.forEach { entry ->
                             TextButton(onClick = {
                                 vm.update {
-                                    it.copy(wakeKeyword = entry.display, wakeKeywordLine = entry.rawLine)
+                                    it.copy(wakeKeyword = entry.display, wakeKeywordLines = entry.rawLine)
                                 }
                             }) { Text(entry.display) }
                         }
                     }
                 }
 
-                FieldRow(
+                TextAreaRow(
                     "自定义关键词行（高级）",
-                    settings.wakeKeywordLine,
-                    "留空 = 用模型自带 keywords.txt"
-                ) { v -> vm.update { it.copy(wakeKeywordLine = v) } }
+                    settings.wakeKeywordLines,
+                    "每行一个，格式：token token @显示词\n留空 = 只用模型自带 keywords.txt"
+                ) { v -> vm.update { it.copy(wakeKeywordLines = v) } }
+
+                OutlinedButton(onClick = { showAddKeyword = true }) {
+                    Text("添加唤醒词（按模型格式生成）")
+                }
 
                 SliderRow(
                     "唤醒灵敏度",
@@ -276,6 +369,10 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 SecretRow("高德 Web API Key", settings.amapKey, enabled = settings.navEnabled) { v ->
                     vm.update { it.copy(amapKey = v) }
                 }
+                SecretRow("高德安全密钥（jscode）", settings.amapSecurityKey, enabled = settings.navEnabled) { v ->
+                    vm.update { it.copy(amapSecurityKey = v) }
+                }
+                Hint("2021-12-02 之后申请的 Key 必须同时填「安全密钥」，否则高德会返回 INVALID_USER_SCODE（代码 10008）。")
                 SwitchRow("导航前二次确认", "默认关闭", settings.navConfirm, settings.navEnabled) { v ->
                     vm.update { it.copy(navConfirm = v) }
                 }
@@ -370,6 +467,12 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 SwitchRow("悬浮小球", "常驻监听入口，也是 Android 14 后台启动麦克风的豁免条件", settings.floatBallEnabled) { v ->
                     vm.update { it.copy(floatBallEnabled = v) }
                 }
+                SliderRow(
+                    "悬浮球透明度",
+                    settings.floatBallAlpha,
+                    0.2f..1f,
+                    enabled = settings.floatBallEnabled
+                ) { v -> vm.update { it.copy(floatBallAlpha = v) } }
                 if (!SystemSettings.hasOverlay(context)) {
                     Hint("⚠ 还没有悬浮窗权限，小球不会显示。")
                     OutlinedButton(
@@ -445,6 +548,68 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             title = { Text("测试结果") },
             text = { Text(msg) },
             confirmButton = { TextButton(onClick = { infoMessage = null }) { Text("关闭") } }
+        )
+    }
+
+    if (showAddKeyword) {
+        AlertDialog(
+            onDismissRequest = {
+                showAddKeyword = false
+                keywordMsg = null
+            },
+            title = { Text("添加唤醒词") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = newKeywordDisplay,
+                        onValueChange = { newKeywordDisplay = it },
+                        label = { Text("显示文本") },
+                        placeholder = { Text("例如 你好小助手") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newKeywordPinyin,
+                        onValueChange = { newKeywordPinyin = it },
+                        label = { Text("拼音音节（空格分开）") },
+                        placeholder = { Text("ni hao xiao zhu shou") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Hint("会用模型的 tokens.txt 自动拼成 keywords.txt 的格式；哪个音节映射不上会直接告诉你。")
+                    keywordMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val result = com.voiceassistant.model.KwsKeywordBuilder.build(
+                        modelDir = settings.wakeModelDir,
+                        display = newKeywordDisplay,
+                        pinyinInput = newKeywordPinyin
+                    )
+                    if (result.line != null) {
+                        val merged = (settings.wakeKeywordLines.lines().filter { it.isNotBlank() } + result.line)
+                            .joinToString("\n")
+                        vm.update {
+                            it.copy(
+                                wakeKeywordLines = merged,
+                                wakeKeyword = newKeywordDisplay.trim()
+                            )
+                        }
+                        keywordMsg = "已添加：${result.line}"
+                        newKeywordDisplay = ""
+                        newKeywordPinyin = ""
+                    } else {
+                        keywordMsg = result.message
+                    }
+                }) { Text("生成并添加") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showAddKeyword = false
+                    keywordMsg = null
+                }) { Text("关闭") }
+            }
         )
     }
 }
@@ -701,6 +866,31 @@ private fun RadioRow(label: String, selected: Boolean, enabled: Boolean, onSelec
         RadioButton(selected = selected, onClick = onSelect, enabled = enabled)
         Text(label, style = MaterialTheme.typography.bodyLarge)
     }
+}
+
+@Composable
+private fun TextAreaRow(
+    label: String,
+    value: String,
+    placeholder: String,
+    onChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        placeholder = { Text(placeholder) },
+        minLines = 3,
+        maxLines = 8,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+/** 欢迎词下拉候选：自定义列表 + 内置默认 */
+private fun phraseChoices(raw: String): List<String> {
+    val custom = raw.split('\n', '\r').map { it.trim() }.filter { it.isNotEmpty() }
+    val base = listOf("我在", "嗯，你说", "听着呢", "有什么吩咐", "在呢，请讲", "来啦，请说")
+    return (custom + base).distinct()
 }
 
 @Composable

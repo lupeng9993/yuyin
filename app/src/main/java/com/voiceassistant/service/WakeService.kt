@@ -80,6 +80,80 @@ class WakeService : Service() {
 
     private val running = AtomicBoolean(false)
 
+    /** 内置默认应答语（用户可在设置里覆盖） */
+    private val defaultAcks = listOf(
+        "我在",
+        "嗯，你说",
+        "听着呢",
+        "有什么吩咐",
+        "在呢，请讲",
+        "来啦，请说"
+    )
+
+    /** 内置默认结束语（用户可在设置里覆盖） */
+    private val defaultFarewells = listOf(
+        "再见",
+        "拜拜",
+        "好的，有事再叫我",
+        "那我先歇着了",
+        "回头见",
+        "需要我就喊我"
+    )
+
+    private var lastAckIndex = -1
+    private var lastFarewellIndex = -1
+
+    private fun parseList(raw: String): List<String> =
+        raw.split('\n', '\r').map { it.trim() }.filter { it.isNotEmpty() }
+
+    private fun ackPhrases(): List<String> =
+        parseList(settings.wakeAckPhrases).ifEmpty { defaultAcks }
+
+    private fun farewellPhrases(): List<String> =
+        parseList(settings.farewellPhrases).ifEmpty { defaultFarewells }
+
+    /** 按当前时间给一句问候 */
+    private fun timeGreeting(): String {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        return when (hour) {
+            in 5..10 -> "早上好"
+            in 11..12 -> "中午好"
+            in 13..17 -> "下午好"
+            else -> "晚上好"
+        }
+    }
+
+    private fun nextWakeAck(): String {
+        // 固定模式：直接用用户选定的那一句
+        if (settings.wakeAckMode == "fixed") {
+            val fixed = settings.wakeAckFixed.trim()
+            if (fixed.isNotEmpty()) return fixed
+        }
+
+        val list = ackPhrases()
+        if (list.size == 1) return list.first()
+
+        var index: Int
+        do {
+            index = kotlin.random.Random.nextInt(list.size)
+        } while (index == lastAckIndex)
+        lastAckIndex = index
+        val ack = list[index]
+        // 一半概率带上「早上好/中午好/下午好/晚上好」
+        return if (kotlin.random.Random.nextInt(100) < 50) "${timeGreeting()}，$ack" else ack
+    }
+
+    private fun nextFarewell(): String {
+        val list = farewellPhrases()
+        if (list.size <= 1) return list.firstOrNull() ?: "再见"
+        var index: Int
+        do {
+            index = kotlin.random.Random.nextInt(list.size)
+        } while (index == lastFarewellIndex)
+        lastFarewellIndex = index
+        return list[index]
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -169,13 +243,14 @@ class WakeService : Service() {
                     updated.ttsEngine != settings.ttsEngine ||
                     updated.ttsModelDir != settings.ttsModelDir ||
                     updated.wakeKeyword != settings.wakeKeyword ||
-                    updated.wakeKeywordLine != settings.wakeKeywordLine
+                    updated.wakeKeywordLines != settings.wakeKeywordLines
                 settings = updated
                 if (enginesChanged) {
                     DebugLog.d(TAG, "配置变化，重建引擎")
                     rebuildEngines()
                 }
                 syncFloatBall()
+                floatWindow?.setAlpha(updated.floatBallAlpha)
                 updateNotification()
             }
         }
@@ -247,6 +322,8 @@ class WakeService : Service() {
             if (w.accept(samples, AudioCapture.SAMPLE_RATE)) {
                 DebugLog.d(TAG, "唤醒命中")
                 state = State.CAPTURING
+                // 开始听指令：小球边缘亮起极光
+                floatWindow?.setAurora(true)
                 try {
                     handleUtterance()
                 } catch (e: Exception) {
@@ -256,13 +333,22 @@ class WakeService : Service() {
                     drainAudio()
                     wake?.reset()
                     state = State.LISTENING
+                    // 指令处理完，极光熄灭
+                    floatWindow?.setAurora(false)
                 }
             }
         }
     }
 
-    /** 唤醒后：VAD 截句 → ASR → 意图 → 执行 → 播报 */
+    /** 唤醒后：先随机应答一句，再 VAD 截句 → ASR → 意图 → 执行 → 播报 */
     private suspend fun handleUtterance() {
+        if (settings.wakeAckEnabled && settings.ttsEnabled) {
+            speakSafely(nextWakeAck())
+            delay(120)
+            // 丢掉应答的回声，避免把自己说的话当成指令
+            drainAudio()
+        }
+
         val samples = captureUtterance(MAX_UTTERANCE_MS)
         if (samples.size < AudioCapture.SAMPLE_RATE * MIN_UTTERANCE_MS / 1000) {
             DebugLog.d(TAG, "语音过短，忽略")
@@ -270,10 +356,20 @@ class WakeService : Service() {
         }
 
         state = State.PROCESSING
-        val text = recognize(samples)
-        if (text.isBlank()) {
+        val recognized = recognize(samples)
+        if (recognized.isBlank()) {
             DebugLog.d(TAG, "ASR 结果为空")
             speakSafely(getString(com.voiceassistant.R.string.tts_asr_empty))
+            return
+        }
+        // 用户常常一口气把唤醒词和指令连在一起说，ASR 会把唤醒词也带进来
+        val text = stripWakeWord(recognized)
+
+        // 结束对话类说法：不执行任何动作，回一句告别后继续待命
+        if (settings.farewellEnabled && com.voiceassistant.nlu.DialogControl.isEndOfConversation(text)) {
+            val bye = nextFarewell()
+            AppStateBus.onResult("会话结束：$bye")
+            speakSafely(bye)
             return
         }
 
@@ -282,7 +378,8 @@ class WakeService : Service() {
 
         val plan = understand(text) ?: run {
             speakSafely(getString(com.voiceassistant.R.string.tts_unknown_command))
-            AppStateBus.onResult("无法识别该指令")
+            // 把听到的原话写进结果卡：绝大多数「无法识别」都是识别错字，看一眼就明白
+            AppStateBus.onResult("无法识别该指令（听到：$text）")
             return
         }
 
@@ -418,8 +515,24 @@ class WakeService : Service() {
         }
     }
 
-    private suspend fun recognize(samples: FloatArray): String {
-        val engine = asr ?: return ""
+    /** 去掉开头混进来的唤醒词以及它后面的标点 */
+    private fun stripWakeWord(text: String): String {
+        val candidates = buildList {
+            add(settings.wakeKeyword)
+            addAll(AppStateBus.state.value.wakeKeywords)
+        }.filter { it.isNotBlank() }.distinct().sortedByDescending { it.length }
+
+        var result = text
+        for (word in candidates) {
+            if (result.startsWith(word)) {
+                result = result.removePrefix(word)
+                break
+            }
+        }
+        return result.trimStart('，', ',', '。', ' ', '、', '！', '!', '？', '?')
+    }
+
+    private suspend fun recognize(samples: FloatArray): String {        val engine = asr ?: return ""
         if (samples.isEmpty()) return ""
         return try {
             val text = withContext(Dispatchers.Default) {
@@ -473,6 +586,7 @@ class WakeService : Service() {
         if (floatWindow?.isVisible == true) return
         val window = FloatWindow(
             context = this,
+            alpha = settings.floatBallAlpha,
             onTogglePause = { togglePause() },
             onOpenApp = {
                 startActivity(

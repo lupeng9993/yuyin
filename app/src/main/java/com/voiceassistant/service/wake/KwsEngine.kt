@@ -27,8 +27,8 @@ class KwsEngine(
     private val context: Context,
     private val modelDir: String,
     private val threshold: Float,
-    /** 用户自定义的关键词行；空 = 用模型自带的 keywords.txt */
-    private val customLine: String = ""
+    /** 用户自定义的关键词行（多行）；空 = 用模型自带的 keywords.txt */
+    private val customLines: String = ""
 ) : WakeEngine {
 
     override val name: String = "sherpa-kws"
@@ -64,8 +64,10 @@ class KwsEngine(
                 error = "模型不完整：缺 encoder/decoder/joiner/tokens.txt"
                 DebugLog.e(TAG, error!!)
             } else {
-                keywordLines = if (customLine.isNotBlank()) {
-                    listOf(customLine.trim())
+                keywordLines = if (customLines.isNotBlank()) {
+                    customLines.split('\n', '\r')
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
                 } else {
                     KwsKeywords.rawLines(modelDir)
                 }

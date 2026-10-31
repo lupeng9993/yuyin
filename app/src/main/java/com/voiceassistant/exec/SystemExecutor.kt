@@ -87,7 +87,15 @@ class SystemExecutor(private val context: Context) {
 
     private fun openApp(action: VaAction, query: String): ActionResult {
         val pkg = AppLauncher.resolve(context, query)
-            ?: return ActionResult(action, false, "没找到「$query」这个应用", "包名未匹配")
+        if (pkg == null) {
+            val near = AppLauncher.suggestions(context, query)
+            val speech = if (near.isEmpty()) {
+                "没找到「$query」这个应用"
+            } else {
+                "没找到「$query」，是想打开${near.joinToString("、")}吗"
+            }
+            return ActionResult(action, false, speech, "未匹配到包名，候选=$near")
+        }
         return try {
             val intent = context.packageManager.getLaunchIntentForPackage(pkg)
                 ?: return ActionResult(action, false, "「$query」打不开", "无启动入口")

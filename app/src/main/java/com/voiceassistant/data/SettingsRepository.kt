@@ -56,9 +56,15 @@ class SettingsRepository private constructor(context: Context) {
         val default = AppSettings()
         return AppSettings(
             wakeEnabled = prefs[K.wakeEnabled] ?: default.wakeEnabled,
+            wakeAckEnabled = prefs[K.wakeAckEnabled] ?: default.wakeAckEnabled,
+            farewellEnabled = prefs[K.farewellEnabled] ?: default.farewellEnabled,
             wakeKeyword = prefs[K.wakeKeyword] ?: default.wakeKeyword,
             wakeThreshold = prefs[K.wakeThreshold] ?: default.wakeThreshold,
-            wakeKeywordLine = prefs[K.wakeKeywordLine] ?: default.wakeKeywordLine,
+            wakeKeywordLines = prefs[K.wakeKeywordLines] ?: default.wakeKeywordLines,
+            wakeAckPhrases = prefs[K.wakeAckPhrases] ?: default.wakeAckPhrases,
+            wakeAckMode = prefs[K.wakeAckMode] ?: default.wakeAckMode,
+            wakeAckFixed = prefs[K.wakeAckFixed] ?: default.wakeAckFixed,
+            farewellPhrases = prefs[K.farewellPhrases] ?: default.farewellPhrases,
             wakeModelDir = prefs[K.wakeModelDir] ?: default.wakeModelDir,
             asrEnabled = prefs[K.asrEnabled] ?: default.asrEnabled,
             asrModelDir = prefs[K.asrModelDir] ?: default.asrModelDir,
@@ -74,6 +80,7 @@ class SettingsRepository private constructor(context: Context) {
             cloudAutoFallback = prefs[K.cloudAutoFallback] ?: default.cloudAutoFallback,
             navEnabled = prefs[K.navEnabled] ?: default.navEnabled,
             amapKey = SecureStore.decrypt(prefs[K.amapKeyEnc] ?: ""),
+            amapSecurityKey = SecureStore.decrypt(prefs[K.amapSecurityEnc] ?: ""),
             navConfirm = prefs[K.navConfirm] ?: default.navConfirm,
             wechatEnabled = prefs[K.wechatEnabled] ?: default.wechatEnabled,
             wechatForceConfirm = prefs[K.wechatForceConfirm] ?: default.wechatForceConfirm,
@@ -86,15 +93,22 @@ class SettingsRepository private constructor(context: Context) {
             ttsVolume = prefs[K.ttsVolume] ?: default.ttsVolume,
             debugMode = prefs[K.debugMode] ?: default.debugMode,
             bootAutoStart = prefs[K.bootAutoStart] ?: default.bootAutoStart,
-            floatBallEnabled = prefs[K.floatBallEnabled] ?: default.floatBallEnabled
+            floatBallEnabled = prefs[K.floatBallEnabled] ?: default.floatBallEnabled,
+            floatBallAlpha = prefs[K.floatBallAlpha] ?: default.floatBallAlpha
         )
     }
 
     private fun write(m: androidx.datastore.preferences.core.MutablePreferences, s: AppSettings) {
         m[K.wakeEnabled] = s.wakeEnabled
+        m[K.wakeAckEnabled] = s.wakeAckEnabled
+        m[K.farewellEnabled] = s.farewellEnabled
         m[K.wakeKeyword] = s.wakeKeyword
         m[K.wakeThreshold] = s.wakeThreshold
-        m[K.wakeKeywordLine] = s.wakeKeywordLine
+        m[K.wakeKeywordLines] = s.wakeKeywordLines
+        m[K.wakeAckPhrases] = s.wakeAckPhrases
+        m[K.wakeAckMode] = s.wakeAckMode
+        m[K.wakeAckFixed] = s.wakeAckFixed
+        m[K.farewellPhrases] = s.farewellPhrases
         m[K.wakeModelDir] = s.wakeModelDir
         m[K.asrEnabled] = s.asrEnabled
         m[K.asrModelDir] = s.asrModelDir
@@ -110,6 +124,8 @@ class SettingsRepository private constructor(context: Context) {
         m[K.cloudAutoFallback] = s.cloudAutoFallback
         m[K.navEnabled] = s.navEnabled
         if (s.amapKey.isNotEmpty()) m[K.amapKeyEnc] = SecureStore.encrypt(s.amapKey) else m.remove(K.amapKeyEnc)
+        if (s.amapSecurityKey.isNotEmpty()) m[K.amapSecurityEnc] = SecureStore.encrypt(s.amapSecurityKey)
+        else m.remove(K.amapSecurityEnc)
         m[K.navConfirm] = s.navConfirm
         m[K.wechatEnabled] = s.wechatEnabled
         m[K.wechatForceConfirm] = s.wechatForceConfirm
@@ -123,13 +139,20 @@ class SettingsRepository private constructor(context: Context) {
         m[K.debugMode] = s.debugMode
         m[K.bootAutoStart] = s.bootAutoStart
         m[K.floatBallEnabled] = s.floatBallEnabled
+        m[K.floatBallAlpha] = s.floatBallAlpha
     }
 
     private object K {
         val wakeEnabled = booleanPreferencesKey("wake_enabled")
+        val wakeAckEnabled = booleanPreferencesKey("wake_ack_enabled")
+        val farewellEnabled = booleanPreferencesKey("farewell_enabled")
         val wakeKeyword = stringPreferencesKey("wake_keyword")
         val wakeThreshold = floatPreferencesKey("wake_threshold")
-        val wakeKeywordLine = stringPreferencesKey("wake_keyword_line")
+        val wakeKeywordLines = stringPreferencesKey("wake_keyword_line")
+        val wakeAckPhrases = stringPreferencesKey("wake_ack_phrases")
+        val wakeAckMode = stringPreferencesKey("wake_ack_mode")
+        val wakeAckFixed = stringPreferencesKey("wake_ack_fixed")
+        val farewellPhrases = stringPreferencesKey("farewell_phrases")
         val wakeModelDir = stringPreferencesKey("wake_model_dir")
         val asrEnabled = booleanPreferencesKey("asr_enabled")
         val asrModelDir = stringPreferencesKey("asr_model_dir")
@@ -145,6 +168,7 @@ class SettingsRepository private constructor(context: Context) {
         val cloudAutoFallback = booleanPreferencesKey("cloud_auto_fallback")
         val navEnabled = booleanPreferencesKey("nav_enabled")
         val amapKeyEnc = stringPreferencesKey("amap_key_enc")
+        val amapSecurityEnc = stringPreferencesKey("amap_security_enc")
         val navConfirm = booleanPreferencesKey("nav_confirm")
         val wechatEnabled = booleanPreferencesKey("wechat_enabled")
         val wechatForceConfirm = booleanPreferencesKey("wechat_force_confirm")
@@ -158,6 +182,7 @@ class SettingsRepository private constructor(context: Context) {
         val debugMode = booleanPreferencesKey("debug_mode")
         val bootAutoStart = booleanPreferencesKey("boot_auto_start")
         val floatBallEnabled = booleanPreferencesKey("float_ball_enabled")
+        val floatBallAlpha = floatPreferencesKey("float_ball_alpha")
     }
 
     companion object {
