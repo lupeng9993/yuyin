@@ -147,20 +147,100 @@ class SystemExecutor(private val context: Context) {
             return ActionResult(action, false, speech, "未匹配到包名，候选=$near")
         }
 
+        val label = AppLauncher.labelOf(context, pkg) ?: query
+
         return try {
-            // 应用在前台时，系统不允许直接杀掉，先回桌面
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+
+            // 第一步：先回桌面。前台应用系统不允许杀，必须让它先变成后台
             if (A11yBridge.isReady()) {
                 A11yBridge.home()
-                delay(300)
+                awaitNotForeground(pkg, 1500)
             }
-            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+
+            // 第二步：杀它的后台进程
             am.killBackgroundProcesses(pkg)
-            val label = AppLauncher.labelOf(context, pkg) ?: query
-            DebugLog.d(TAG, "已关闭 $pkg")
-            ActionResult(action, true, "已关闭$label", "pkg=$pkg")
+            delay(600)
+
+            if (!isForeground(pkg)) {
+                DebugLog.d(TAG, "已关闭 $pkg")
+                return ActionResult(action, true, "已关闭$label", "killBackgroundProcesses pkg=$pkg")
+            }
+
+            // 第三步：还是前台（或压根没杀掉）→ 走系统设置页的「强行停止」
+            if (A11yBridge.isReady() && forceStopViaSettings(pkg)) {
+                DebugLog.d(TAG, "通过设置页强行停止 $pkg")
+                return ActionResult(action, true, "已强制停止$label", "force-stop via settings pkg=$pkg")
+            }
+
+            // 都失败就老实说
+            val hint = if (A11yBridge.isReady()) "" else "（开启无障碍可以走设置页强制停止）"
+            ActionResult(
+                action, false,
+                "没能关闭$label，系统不允许关闭正在使用的应用$hint",
+                "kill 与 force-stop 均失败，pkg=$pkg"
+            )
         } catch (e: Exception) {
             DebugLog.e(TAG, "关闭应用失败", e)
             ActionResult(action, false, "关闭「$query」失败", e.message.orEmpty())
+        }
+    }
+
+    private fun isForeground(pkg: String): Boolean = A11yBridge.currentWindowPackage() == pkg
+
+    /** 等目标应用彻底退到后台（最多 timeoutMs） */
+    private suspend fun awaitNotForeground(pkg: String, timeoutMs: Long) {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < end) {
+            if (!isForeground(pkg)) return
+            delay(150)
+        }
+    }
+
+    private suspend fun awaitNode(timeoutMs: Long, finder: () -> android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < end) {
+            finder()?.let { return it }
+            delay(200)
+        }
+        return null
+    }
+
+    /**
+     * 打开「应用详情」页点「强行停止」——这是普通应用唯一能真正停掉别人的正规途径。
+     * 需要无障碍服务。
+     */
+    private suspend fun forceStopViaSettings(pkg: String): Boolean {
+        return try {
+            context.startActivity(
+                Intent(
+                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$pkg")
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            delay(900)
+
+            val stop = awaitNode(3000) {
+                A11yBridge.findNode(A11yBridge.TextFilter(exact = "强行停止"))
+                    ?: A11yBridge.findNode(A11yBridge.TextFilter(exact = "强制停止"))
+                    ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "强行停止"))
+            } ?: return false
+
+            if (!A11yBridge.click(stop)) return false
+            delay(700)
+
+            val confirm = awaitNode(2500) {
+                A11yBridge.findNode(A11yBridge.TextFilter(exact = "确定"))
+                    ?: A11yBridge.findNode(A11yBridge.TextFilter(exact = "OK"))
+                    ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "强行停止"))
+            }
+            confirm?.let { A11yBridge.click(it) }
+            delay(700)
+            A11yBridge.home()
+            true
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "设置页强行停止失败: ${e.message}")
+            false
         }
     }
 
@@ -243,7 +323,7 @@ class SystemExecutor(private val context: Context) {
             )
         } catch (e: Exception) {
             DebugLog.e(TAG, "打开购物应用失败", e)
-            ActionResult(action, false, "打开$appName失败", e.message.orEmpty())
+            ActionResult(action, false, "打开${appName}失败", e.message.orEmpty())
         }
     }
 
