@@ -52,6 +52,11 @@ class KwsEngine(
         private set
 
     init {
+        initialize()
+    }
+
+    /** 初始化逻辑放在普通函数里：init 块里不允许 return */
+    private fun initialize() {
         try {
             val dir = File(modelDir)
             val encoder = pick(dir, "encoder")
