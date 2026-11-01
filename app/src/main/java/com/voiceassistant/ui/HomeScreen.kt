@@ -89,7 +89,9 @@ fun HomeScreen(vm: AppViewModel, onOpenSettings: () -> Unit) {
                 keyword = settings.wakeKeyword,
                 wakeEngine = state.wakeEngine,
                 wakeKeywords = state.wakeKeywords,
-                wakeError = state.wakeError
+                wakeError = state.wakeError,
+                asrEngine = state.asrEngine,
+                asrError = state.asrError
             )
 
             Box(
@@ -172,7 +174,9 @@ private fun StatusCard(
     keyword: String,
     wakeEngine: String,
     wakeKeywords: List<String>,
-    wakeError: String
+    wakeError: String,
+    asrEngine: String,
+    asrError: String
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -212,6 +216,12 @@ private fun StatusCard(
             }
             StatusRow(label = "可用唤醒词", value = kwText, good = wakeKeywords.isNotEmpty() && wakeError.isBlank())
             StatusRow(label = "当前唤醒词", value = keyword, good = true)
+            // 说"没听清"时先看这一行
+            StatusRow(
+                label = "识别引擎",
+                value = if (asrError.isNotBlank()) asrError else if (asrEngine.isBlank()) "未加载" else asrEngine,
+                good = asrError.isBlank() && asrEngine.isNotBlank() && asrEngine != "none"
+            )
         }
     }
 }

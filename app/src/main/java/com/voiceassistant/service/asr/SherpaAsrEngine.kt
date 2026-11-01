@@ -35,6 +35,12 @@ class SherpaAsrEngine(
     private var recognizer: OfflineRecognizer? = null
     private val dir = File(modelDir)
 
+    /** 初始化失败原因（模型损坏、文件缺失等），非空说明识别一定不可用 */
+    var initError: String? = null
+        private set
+
+    fun ready(): Boolean = recognizer != null
+
     init {
         try {
             val modelFile = pickFile(dir, listOf("model.int8.onnx", "model.onnx", "model.onnx.quant"))
@@ -58,9 +64,12 @@ class SherpaAsrEngine(
                 recognizer = OfflineRecognizer(config = config)
                 DebugLog.d(TAG, "识别引擎就绪: ${modelFile.name}")
             } else {
+                initError = "模型目录里缺 model.onnx / tokens.txt"
                 DebugLog.w(TAG, "模型不完整: ${dir.absolutePath}")
             }
         } catch (e: Exception) {
+            // 最常见的就是下载不完整：Protobuf parsing failed
+            initError = "识别模型损坏或不可读（${e.message?.take(80)}），请删除后重新下载"
             DebugLog.e(TAG, "初始化识别引擎失败", e)
             recognizer = null
         }

@@ -13,9 +13,14 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * 应用内模型下载器：下载 tar.bz2 → 解压到 filesDir/models/<kind>/<model>/。
+ * 应用内模型下载器。
  *
- * 全程不经过公共存储，不需要任何存储权限；失败时清理半成品，避免留下残缺模型。
+ * 支持两种来源：
+ * 1. 官方 tar.bz2 包（默认），下载后解压；
+ * 2. **自定义直链**：指向单个 .onnx / .txt 文件（用于 GitHub 连不上时走镜像或自己搭的地址）。
+ *
+ * 每次都先清空目标目录，避免上一次的残缺文件混进来——
+ * "Protobuf parsing failed" 基本都是这么来的。
  */
 class ModelDownloader(private val context: Context) {
 
@@ -25,7 +30,7 @@ class ModelDownloader(private val context: Context) {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -44,53 +49,51 @@ class ModelDownloader(private val context: Context) {
     }
 
     /**
-     * @return 解压后的模型目录；失败返回 null
+     * @param urlOverride 自定义直链；为空用 [ModelCatalog.Entry.url]
+     * @return 模型目录；失败返回 null
      */
     suspend fun download(
         entry: ModelCatalog.Entry,
+        urlOverride: String = "",
         onProgress: (Progress) -> Unit = {}
     ): File? = withContext(Dispatchers.IO) {
         cancelled = false
+        val url = urlOverride.trim().ifBlank { entry.url }
         val targetDir = ModelRepository.dir(context, entry.kind, entry.id)
-        val archive = File(context.cacheDir, "${entry.id}.tar.bz2")
 
         try {
-            DebugLog.d(TAG, "开始下载 ${entry.id}")
-            val request = Request.Builder().url(entry.url).get().build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    DebugLog.w(TAG, "下载失败 HTTP ${response.code}")
+            // 干净重装：先清空，避免残缺文件残留
+            if (targetDir.exists()) {
+                targetDir.deleteRecursively()
+                DebugLog.d(TAG, "清空旧模型目录 ${targetDir.absolutePath}")
+            }
+            targetDir.mkdirs()
+
+            val singleFile = url.endsWith(".onnx", true) || url.endsWith(".txt", true)
+            if (singleFile) {
+                val name = url.substringBefore('?').substringAfterLast('/')
+                val dest = File(targetDir, name)
+                DebugLog.d(TAG, "直链下载单个文件 $url → ${dest.name}")
+                if (!downloadTo(url, dest, onProgress)) {
+                    targetDir.deleteRecursively()
                     return@withContext null
                 }
-                val total = response.body?.contentLength() ?: -1L
-                val input = response.body?.byteStream() ?: return@withContext null
-                var downloaded = 0L
-                var lastReport = 0L
-
-                archive.outputStream().use { out ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        if (cancelled) {
-                            DebugLog.w(TAG, "下载被取消")
-                            return@withContext null
-                        }
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        out.write(buffer, 0, read)
-                        downloaded += read
-                        val now = System.currentTimeMillis()
-                        if (now - lastReport > 300) {
-                            lastReport = now
-                            onProgress(Progress(Progress.Stage.DOWNLOAD, downloaded, total))
-                        }
-                    }
-                }
-                onProgress(Progress(Progress.Stage.DOWNLOAD, downloaded, total))
+                onProgress(Progress(Progress.Stage.EXTRACT, 0, 0))
+                return@withContext targetDir
             }
 
-            if (cancelled) return@withContext null
+            val archive = File(context.cacheDir, "${entry.id}.tar.bz2")
+            DebugLog.d(TAG, "开始下载 $url")
+            if (!downloadTo(url, archive, onProgress)) {
+                archive.delete()
+                targetDir.deleteRecursively()
+                return@withContext null
+            }
+            if (cancelled) {
+                archive.delete()
+                return@withContext null
+            }
 
-            // 解压阶段可能持续几十秒（230 MB 的模型更久），必须给用户一个明确状态
             onProgress(Progress(Progress.Stage.EXTRACT, 0, 0))
             DebugLog.d(TAG, "下载完成，开始解压到 ${targetDir.absolutePath}")
             val ok = extractBz2Tar(archive, targetDir)
@@ -101,8 +104,7 @@ class ModelDownloader(private val context: Context) {
                 return@withContext null
             }
 
-            // 完整性校验：ONNX 文件太小说明解压/下载不完整，
-            // 这种文件加载时会报 "Protobuf parsing failed"
+            // 完整性校验：没有任何 onnx，或最大 onnx 太小 → 判定失败
             val onnxFiles = targetDir.walkTopDown()
                 .filter { it.isFile && it.name.endsWith(".onnx", ignoreCase = true) }
                 .toList()
@@ -112,21 +114,65 @@ class ModelDownloader(private val context: Context) {
                 return@withContext null
             }
             val biggest = onnxFiles.maxOf { it.length() }
-            if (biggest < 200_000L) {
+            if (biggest < 1_000_000L) {
                 DebugLog.w(TAG, "模型文件过小（最大 ${biggest}B），判定为下载不完整")
                 targetDir.deleteRecursively()
                 return@withContext null
             }
 
-            // 有些包解压后多一层同名目录，这里把它拍平
             val flattened = flattenSingleDir(targetDir)
             DebugLog.d(TAG, "模型就绪: ${flattened.absolutePath}")
             flattened
         } catch (e: Exception) {
             DebugLog.e(TAG, "下载或解压失败", e)
-            archive.delete()
             targetDir.deleteRecursively()
             null
+        }
+    }
+
+    /** 下载到指定文件；失败返回 false */
+    private fun downloadTo(
+        url: String,
+        dest: File,
+        onProgress: (Progress) -> Unit
+    ): Boolean {
+        val request = Request.Builder().url(url).get().build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                DebugLog.w(TAG, "下载失败 HTTP ${response.code}")
+                return false
+            }
+            val total = response.body?.contentLength() ?: -1L
+            val input = response.body?.byteStream() ?: return false
+            var downloaded = 0L
+            var lastReport = 0L
+
+            dest.outputStream().use { out ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    if (cancelled) {
+                        DebugLog.w(TAG, "下载被取消")
+                        return false
+                    }
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    out.write(buffer, 0, read)
+                    downloaded += read
+                    val now = System.currentTimeMillis()
+                    if (now - lastReport > 300) {
+                        lastReport = now
+                        onProgress(Progress(Progress.Stage.DOWNLOAD, downloaded, total))
+                    }
+                }
+            }
+            onProgress(Progress(Progress.Stage.DOWNLOAD, downloaded, total))
+
+            // 长度对不上 = 传输被截断，直接判失败，别让坏文件进模型目录
+            if (total > 0 && downloaded != total) {
+                DebugLog.w(TAG, "下载长度不符：$downloaded / $total")
+                return false
+            }
+            return true
         }
     }
 
@@ -143,7 +189,6 @@ class ModelDownloader(private val context: Context) {
                                 val name = entry.name.substringAfter('/', entry.name)
                                 if (name.isNotBlank()) {
                                     val outFile = File(targetDir, name)
-                                    // 防目录穿越
                                     if (outFile.canonicalPath.startsWith(targetDir.canonicalPath)) {
                                         outFile.parentFile?.mkdirs()
                                         outFile.outputStream().use { out -> tar.copyTo(out) }
@@ -162,7 +207,7 @@ class ModelDownloader(private val context: Context) {
         }
     }
 
-    /** 如果解压后目录里只有一个子目录，把内容提到上层，方便按目录名识别模型 */
+    /** 解压后如果只剩一层同名目录，把内容提上来 */
     private fun flattenSingleDir(dir: File): File {
         val children = dir.listFiles() ?: return dir
         if (children.size == 1 && children[0].isDirectory) {

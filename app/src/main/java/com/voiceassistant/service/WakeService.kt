@@ -316,6 +316,15 @@ class WakeService : Service() {
             ?: ""
         AppStateBus.setWakeInfo(engine?.name ?: "none", keywords, error)
         DebugLog.d(TAG, "唤醒状态: engine=${engine?.name} keywords=$keywords error=$error")
+
+        val asrEngine = asr
+        val asrError = when (asrEngine) {
+            is com.voiceassistant.service.asr.SherpaAsrEngine -> asrEngine.initError ?: ""
+            is com.voiceassistant.service.engine.NoopAsrEngine -> asrEngine.reason()
+            else -> ""
+        }
+        AppStateBus.setAsrInfo(asrEngine?.name ?: "none", asrError)
+        DebugLog.d(TAG, "识别状态: engine=${asrEngine?.name} error=$asrError")
     }
 
     private fun startAudio() {

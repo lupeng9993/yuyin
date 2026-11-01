@@ -566,8 +566,9 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
         ModelDownloadDialog(
             kind = kind,
             progress = downloadState,
-            onDownload = { entry -> vm.downloadModel(entry) },
+            onDownload = { entry, url -> vm.downloadModel(entry, url) },
             onSelect = { entry -> vm.selectModel(entry) },
+            onDelete = { entry -> vm.deleteModel(entry) },
             onCancelDownload = { vm.cancelDownload() },
             onDismiss = {
                 vm.dismissDownloadMessage()
@@ -694,13 +695,15 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
 private fun ModelDownloadDialog(
     kind: ModelKind,
     progress: AppViewModel.DownloadState,
-    onDownload: (com.voiceassistant.model.ModelCatalog.Entry) -> Unit,
+    onDownload: (com.voiceassistant.model.ModelCatalog.Entry, String) -> Unit,
     onSelect: (com.voiceassistant.model.ModelCatalog.Entry) -> Unit,
+    onDelete: (com.voiceassistant.model.ModelCatalog.Entry) -> Unit,
     onCancelDownload: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val entries = remember(kind) { com.voiceassistant.model.ModelCatalog.byKind(kind) }
+    var customUrl by remember(kind) { mutableStateOf("") }
     // 进度或开关变化时刷新「已安装」状态
     val installed = remember(kind, progress.running, progress.percent, progress.entryId) {
         ModelRepository.installedNames(context, kind)
@@ -712,6 +715,16 @@ private fun ModelDownloadDialog(
         title = { Text(kind.label) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = customUrl,
+                    onValueChange = { customUrl = it },
+                    label = { Text("自定义下载地址（可选）") },
+                    placeholder = { Text("https://…/model.int8.onnx 或 .tar.bz2") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Hint("GitHub 连不上时，这里填镜像或自己架的直链；下载前会自动清空旧文件，避免残缺模型。")
+                Divider()
                 entries.forEach { entry ->
                     val isCurrent = progress.running && progress.entryId == entry.id
                     val isInstalled = installed.contains(entry.id)
@@ -732,11 +745,17 @@ private fun ModelDownloadDialog(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
-                            isInstalled -> TextButton(onClick = { onSelect(entry) }) {
-                                Text("已安装 · 点此使用")
+                            isInstalled -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { onSelect(entry) }) {
+                                    Text("已安装 · 点此使用")
+                                }
+                                TextButton(
+                                    onClick = { onDelete(entry) },
+                                    enabled = !progress.running
+                                ) { Text("删除重下") }
                             }
                             else -> TextButton(
-                                onClick = { onDownload(entry) },
+                                onClick = { onDownload(entry, customUrl) },
                                 enabled = !progress.running
                             ) { Text("下载") }
                         }

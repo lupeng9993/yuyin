@@ -51,10 +51,16 @@ object EngineFactory {
             return NoopAsrEngine("未导入识别模型")
         }
         return try {
-            SherpaAsrEngine(context, dir)
+            val engine = SherpaAsrEngine(context, dir)
+            if (engine.ready()) {
+                engine
+            } else {
+                DebugLog.w(TAG, "识别引擎不可用: ${engine.initError}")
+                NoopAsrEngine(engine.initError ?: "识别引擎初始化失败")
+            }
         } catch (e: Exception) {
             DebugLog.e(TAG, "创建识别引擎失败", e)
-            NoopAsrEngine("识别引擎初始化失败")
+            NoopAsrEngine("识别引擎初始化异常：${e.message}")
         }
     }
 

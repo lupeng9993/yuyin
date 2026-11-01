@@ -39,7 +39,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private var downloader: com.voiceassistant.model.ModelDownloader? = null
 
-    fun downloadModel(entry: com.voiceassistant.model.ModelCatalog.Entry) {
+    fun downloadModel(entry: com.voiceassistant.model.ModelCatalog.Entry, urlOverride: String = "") {
         if (_download.value.running) return
         val ctx = getApplication<Application>()
         val engine = com.voiceassistant.model.ModelDownloader(ctx)
@@ -47,7 +47,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _download.value = DownloadState(entryId = entry.id, running = true, percent = 0)
 
         viewModelScope.launch {
-            val dir = engine.download(entry) { progress ->
+            val dir = engine.download(entry, urlOverride) { progress ->
                 val stage = when (progress.stage) {
                     com.voiceassistant.model.ModelDownloader.Progress.Stage.DOWNLOAD -> "下载中"
                     com.voiceassistant.model.ModelDownloader.Progress.Stage.EXTRACT -> "解压中"
@@ -73,6 +73,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _download.value = DownloadState(
                 entryId = entry.id, running = false, percent = 100, message = "已安装：${entry.title}"
             )
+        }
+    }
+
+    /** 删除已安装模型（文件损坏时用它清掉重下） */
+    fun deleteModel(entry: com.voiceassistant.model.ModelCatalog.Entry) {
+        val ctx = getApplication<Application>()
+        val target = com.voiceassistant.model.ModelRepository
+            .dir(ctx, entry.kind, entry.id).absolutePath
+        com.voiceassistant.model.ModelRepository.delete(ctx, entry.kind, entry.id)
+        viewModelScope.launch {
+            repo.update { s ->
+                when (entry.kind) {
+                    com.voiceassistant.model.ModelKind.KWS ->
+                        if (s.wakeModelDir.startsWith(target)) s.copy(wakeModelDir = "") else s
+                    com.voiceassistant.model.ModelKind.ASR ->
+                        if (s.asrModelDir.startsWith(target)) s.copy(asrModelDir = "") else s
+                    com.voiceassistant.model.ModelKind.VAD ->
+                        if (s.vadModelPath.startsWith(target)) s.copy(vadModelPath = "") else s
+                    com.voiceassistant.model.ModelKind.TTS ->
+                        if (s.ttsModelDir.startsWith(target)) s.copy(ttsModelDir = "") else s
+                }
+            }
+            _download.value = DownloadState(message = "已删除：${entry.title}，请重新下载")
         }
     }
 

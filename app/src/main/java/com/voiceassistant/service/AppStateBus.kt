@@ -25,6 +25,9 @@ object AppStateBus {
         val wakeEngine: String = "",
         val wakeKeywords: List<String> = emptyList(),
         val wakeError: String = "",
+        /** 识别引擎状态：说"没听清"时先看这里 */
+        val asrEngine: String = "",
+        val asrError: String = "",
         /** 悬浮球显示失败的原因（没有权限 / addView 抛异常等） */
         val floatBallError: String = "",
         // 调试面板
@@ -69,6 +72,10 @@ object AppStateBus {
             wakeKeywords = keywords,
             wakeError = error
         )
+    }
+
+    fun setAsrInfo(engine: String, error: String) {
+        _state.value = _state.value.copy(asrEngine = engine, asrError = error)
     }
 
     fun onRecognized(text: String, plan: ActionPlan) {
