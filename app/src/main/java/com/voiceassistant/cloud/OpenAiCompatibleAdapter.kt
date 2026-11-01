@@ -1,17 +1,26 @@
 package com.voiceassistant.cloud
 
 import com.voiceassistant.data.AppSettings
+import com.voiceassistant.log.DebugLog
+import com.voiceassistant.nlu.JsonCleaner
 import com.voiceassistant.nlu.SystemPrompt
 
 /**
  * OpenAI Chat Completions 兼容适配器。
  *
- * 覆盖：豆包（火山方舟）、通义千问（兼容模式）、各类中转网关、本地大模型网关
- * （Ollama / vLLM / one-api / new-api 等）。
+ * 覆盖：豆包（火山方舟）、通义千问、书生·浦语、各类中转网关、本地大模型网关。
  *
- * 只发送已识别文本，绝不上传音频。
+ * 一个现实问题：带「思考过程」的模型（比如书生 intern-latest）经常先把推理写一大堆，
+ * 结果 JSON 还没出来就被 max_tokens 截断。所以这里做一次**严格重试**：
+ * 第一次不设太长的输出上限，如果返回里找不到 JSON，就追加一条"只要 JSON"的指令再要一次。
  */
 class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : CloudAdapter {
+
+    private companion object {
+        const val TAG = "CloudAdapter"
+        const val FIRST_MAX_TOKENS = 512
+        const val STRICT_MAX_TOKENS = 768
+    }
 
     override suspend fun complete(text: String, settings: AppSettings): CloudCall {
         if (!settings.hasCloudKey) {
@@ -26,50 +35,91 @@ class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : C
             return CloudCall(error = CloudError(CloudErrorKind.NO_CONFIG, "未填写模型名称"))
         }
 
-        val body = buildBody(model, text, settings.cloudForceJson)
-        var call = HttpEngine.postJson("$baseUrl/chat/completions", settings.cloudApiKey, body, settings.cloudTimeoutSec)
+        val endpoint = "$baseUrl/chat/completions"
+
+        // 第一次：正常请求
+        var call = HttpEngine.postJson(
+            endpoint, settings.cloudApiKey,
+            buildBody(model, text, settings.cloudForceJson, strict = false, maxTokens = FIRST_MAX_TOKENS),
+            settings.cloudTimeoutSec
+        )
 
         // 有些服务商不支持 response_format，400 时去掉该字段重试一次
         if (!call.ok && call.httpCode == 400 && settings.cloudForceJson &&
             (call.rawBody.contains("response_format") || call.rawBody.contains("json_object"))
         ) {
             call = HttpEngine.postJson(
-                "$baseUrl/chat/completions",
-                settings.cloudApiKey,
-                buildBody(model, text, forceJson = false),
+                endpoint, settings.cloudApiKey,
+                buildBody(model, text, forceJson = false, strict = false, maxTokens = FIRST_MAX_TOKENS),
                 settings.cloudTimeoutSec
             )
         }
 
         if (!call.ok) return call
 
-        val content = extractContent(call.rawBody)
-        if (content.isBlank()) {
+        val first = extractContent(call.rawBody)
+        if (hasJsonPayload(first)) return CloudCall(content = first, httpCode = call.httpCode, rawBody = call.rawBody)
+
+        // 第二次：明确要求「只输出 JSON」，并给足长度
+        DebugLog.w(TAG, "返回里没有 JSON（${first.length} 字符），用严格模式重试一次")
+        val strictCall = HttpEngine.postJson(
+            endpoint, settings.cloudApiKey,
+            buildBody(model, text, settings.cloudForceJson, strict = true, maxTokens = STRICT_MAX_TOKENS),
+            settings.cloudTimeoutSec
+        )
+        if (strictCall.ok) {
+            val second = extractContent(strictCall.rawBody)
+            if (hasJsonPayload(second)) {
+                return CloudCall(content = second, httpCode = strictCall.httpCode, rawBody = strictCall.rawBody)
+            }
+            // 两次都没 JSON：把第二次的内容返回，让上层给出可读的失败原因
+            if (second.isNotBlank()) {
+                return CloudCall(content = second, httpCode = strictCall.httpCode, rawBody = strictCall.rawBody)
+            }
+        }
+
+        if (first.isBlank()) {
             return CloudCall(
                 error = CloudError(
                     CloudErrorKind.BAD_RESPONSE,
-                    "返回里没有 choices[0].message.content（HTTP ${call.httpCode}，" +
-                        "原始 ${call.rawBody.length} 字节：${call.rawBody.take(160)}）"
+                    "返回里没有内容（HTTP ${call.httpCode}，原始 ${call.rawBody.length} 字节：${call.rawBody.take(160)}）"
                 ),
                 httpCode = call.httpCode,
                 rawBody = call.rawBody
             )
         }
-        return CloudCall(content = content, httpCode = call.httpCode, rawBody = call.rawBody)
+        return CloudCall(content = first, httpCode = call.httpCode, rawBody = call.rawBody)
     }
 
-    private fun buildBody(model: String, userText: String, forceJson: Boolean): String {
+    /** 返回内容里到底有没有能解析的意图 JSON */
+    private fun hasJsonPayload(content: String): Boolean {
+        if (content.isBlank()) return false
+        val cleaned = JsonCleaner.clean(content) ?: return false
+        if (!cleaned.startsWith("{")) return false
+        return cleaned.contains("\"action\"") || cleaned.contains("\"actions\"")
+    }
+
+    private fun buildBody(
+        model: String,
+        userText: String,
+        forceJson: Boolean,
+        strict: Boolean,
+        maxTokens: Int
+    ): String {
         val sb = StringBuilder()
         sb.append('{')
         sb.append("\"model\":").append(jsonString(model)).append(',')
         sb.append("\"messages\":[")
         sb.append("{\"role\":\"system\",\"content\":").append(jsonString(SystemPrompt.TEXT)).append("},")
         sb.append("{\"role\":\"user\",\"content\":").append(jsonString(userText)).append("}")
+        if (strict) {
+            sb.append(",{\"role\":\"user\",\"content\":")
+                .append(jsonString("直接输出那个 JSON 对象本身，第一个字符必须是 {，不要写思考过程、不要解释、不要代码块。"))
+                .append("}")
+        }
         sb.append("],")
         sb.append("\"temperature\":0,")
-        // 限住输出长度：意图解析只需要一小段 JSON，
-        // 不限的话模型可能长篇大论，20 秒都不够返回（日志里就是这么超时的）
-        sb.append("\"max_tokens\":320")
+        sb.append("\"max_tokens\":").append(maxTokens)
         if (forceJson) {
             sb.append(",\"response_format\":{\"type\":\"json_object\"}")
         }
@@ -95,9 +145,7 @@ class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : C
         return sb.toString()
     }
 
-    /**
-     * 从 OpenAI 格式响应里取正文。用 org.json 而不是正则，避免把 JSON 转义搞错。
-     */
+    /** 从 OpenAI 格式响应里取正文 */
     private fun extractContent(rawBody: String): String {
         return try {
             val root = org.json.JSONObject(rawBody)
