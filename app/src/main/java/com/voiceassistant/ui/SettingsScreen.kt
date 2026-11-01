@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,6 +42,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -136,30 +139,60 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
     val wide = isWideLayout()
 
     Scaffold { padding ->
-        // 宽屏（横屏平板/车机）内容居中限宽，避免卡片被拉成一条
+        // 宽屏：左边固定菜单 + 右边内容，一屏能看全；窄屏保持原来的折叠卡片
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
             contentAlignment = Alignment.TopCenter
         ) {
+        Row(modifier = Modifier.widthIn(max = 1400.dp).fillMaxSize()) {
+            if (wide) {
+                Column(
+                    modifier = Modifier
+                        .width(230.dp)
+                        .fillMaxHeight()
+                        .padding(horizontal = 20.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                        Text(
+                            "设置",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(Modifier.size(12.dp))
+                    listOf("唤醒与音频", "云端解析", "技能管理", "系统与调试")
+                        .forEachIndexed { index, label ->
+                            NavItem(label, selected = activeTag == index) { activeTag = index }
+                        }
+                }
+            }
+
         Column(
             modifier = Modifier
+                .weight(1f)
                 .fillMaxHeight()
                 .widthIn(max = 1000.dp)
                 .swipeBackToDismiss(onBack)
                 .verticalScroll(rememberScrollState())
                 .padding(
-                    horizontal = if (wide) 32.dp else 16.dp,
-                    vertical = if (wide) 20.dp else 8.dp
+                    horizontal = if (wide) 24.dp else 16.dp,
+                    vertical = if (wide) 24.dp else 8.dp
                 ),
             verticalArrangement = Arrangement.spacedBy(if (wide) 14.dp else 10.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+            if (!wide) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                    }
+                    Text("设置", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 }
-                Text("设置", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             }
 
             if (downloadState.running) {
@@ -170,31 +203,38 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 )
             }
 
-            // 标签：点一下就只展开对应分组，其余自动收起
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("唤醒", "云端", "技能", "系统").forEachIndexed { index, label ->
-                    val selected = activeTag == index
-                    val onClick: () -> Unit = {
-                        activeTag = index
-                        expandWake = index == 0
-                        expandCloud = index == 1
-                        expandSkills = index == 2
-                        expandSystem = index == 3
-                    }
-                    if (selected) {
-                        Button(onClick = onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
-                            Text(label, style = MaterialTheme.typography.bodyMedium)
+            // 窄屏才需要标签行；宽屏用左侧菜单
+            if (!wide) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("唤醒", "云端", "技能", "系统").forEachIndexed { index, label ->
+                        val selected = activeTag == index
+                        val onClick: () -> Unit = {
+                            activeTag = index
+                            expandWake = index == 0
+                            expandCloud = index == 1
+                            expandSkills = index == 2
+                            expandSystem = index == 3
                         }
-                    } else {
-                        OutlinedButton(onClick = onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
-                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                        if (selected) {
+                            Button(onClick = onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
+                                Text(label, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        } else {
+                            OutlinedButton(onClick = onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
+                                Text(label, style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
                 }
             }
 
             // ---------------- 分组一 ----------------
-            GroupCard("唤醒与音频", "唤醒词、模型、音频", expandWake, onToggle = { expandWake = !expandWake }) {
+            GroupCard(
+                "唤醒与音频",
+                "唤醒词、模型、音频",
+                if (wide) activeTag == 0 else expandWake,
+                onToggle = { if (wide) activeTag = 0 else expandWake = !expandWake }
+            ) {
                 SwitchRow(
                     "启用唤醒",
                     "总开关，关闭后前台服务不采集音频",
@@ -347,7 +387,12 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             }
 
             // ---------------- 分组二 ----------------
-            GroupCard("云端解析（大模型）", "关闭后全部指令只走本地", expandCloud, onToggle = { expandCloud = !expandCloud }) {
+            GroupCard(
+                "云端解析（大模型）",
+                "关闭后全部指令只走本地",
+                if (wide) activeTag == 1 else expandCloud,
+                onToggle = { if (wide) activeTag = 1 else expandCloud = !expandCloud }
+            ) {
                 SwitchRow("启用云端解析", "只发送识别后的文本，绝不上传音频", settings.cloudEnabled) { v ->
                     vm.update { it.copy(cloudEnabled = v) }
                 }
@@ -403,7 +448,12 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             }
 
             // ---------------- 分组三 ----------------
-            GroupCard("技能管理", "导航 / 微信 / 系统控制 / 播报", expandSkills, onToggle = { expandSkills = !expandSkills }) {
+            GroupCard(
+                "技能管理",
+                "导航 / 微信 / 系统控制 / 播报",
+                if (wide) activeTag == 2 else expandSkills,
+                onToggle = { if (wide) activeTag = 2 else expandSkills = !expandSkills }
+            ) {
                 Text("导航", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 SwitchRow("启用导航技能", "高德地理编码 + 唤起高德 App", settings.navEnabled) { v ->
                     vm.update { it.copy(navEnabled = v) }
@@ -488,7 +538,12 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             }
 
             // ---------------- 分组四 ----------------
-            GroupCard("系统与调试", "权限、日志、重置", expandSystem, onToggle = { expandSystem = !expandSystem }) {
+            GroupCard(
+                "系统与调试",
+                "权限、日志、重置",
+                if (wide) activeTag == 3 else expandSystem,
+                onToggle = { if (wide) activeTag = 3 else expandSystem = !expandSystem }
+            ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = { SystemSettings.open(context, SystemSettings.overlayIntent(context)) }) {
                         Text("悬浮窗权限")
@@ -551,22 +606,12 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 }) { Text("导出运行日志") }
 
                 Divider(Modifier.padding(vertical = 6.dp))
-                var shizukuTick by remember { mutableStateOf(0) }
                 Text(
-                    "Shizuku：${com.voiceassistant.exec.ShellExecutor.stateText()}",
+                    "关闭应用方式：${com.voiceassistant.exec.ShellExecutor.stateText()}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = {
-                        com.voiceassistant.exec.ShellExecutor.requestPermission()
-                        shizukuTick++
-                    }) { Text("请求 Shizuku 授权") }
-                    OutlinedButton(onClick = { shizukuTick++ }) { Text("刷新状态") }
-                }
-                // 引用 tick，保证刷新时重新读取状态
-                if (shizukuTick < 0) Text("")
-                Hint("装了 Shizuku 才能「真正」强制关闭别的应用、以及用回车键发送微信。没装也不影响其它功能。")
+                Hint("关闭应用走三级兜底：回桌面 → 结束后台进程 → 在「应用详情」点「强行停止」。需要开启无障碍。")
 
                 Divider(Modifier.padding(vertical = 6.dp))
                 OutlinedButton(onClick = { showReset = true }) { Text("重置全部配置") }
@@ -574,6 +619,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             }
 
             Spacer(Modifier.height(24.dp))
+        }
         }
         }
     }
@@ -818,6 +864,28 @@ private fun ModelDownloadDialog(
 }
 
 // ---------------- 通用组件 ----------------
+
+/** 宽屏左侧菜单项 */
+@Composable
+private fun NavItem(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+        else Color.Transparent
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
 
 @Composable
 private fun GroupCard(

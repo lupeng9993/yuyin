@@ -102,7 +102,7 @@ class WechatExecutor(private val context: Context) {
         }
 
         // 输入完成之后才做语音确认——顺序反过来更容易确认"发的就是这个"
-        if (!confirm("给$matchedName发「$message」，确认发送吗？")) {
+        if (!confirm("给${matchedName}发「$message」，确认发送吗？")) {
             return@withContext ActionResult(action, false, "已取消发送", "用户在输入完成后取消")
         }
 
