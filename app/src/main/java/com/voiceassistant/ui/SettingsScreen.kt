@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -95,6 +96,8 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
     var ackMenuOpen by remember { mutableStateOf(false) }
     // 模型唤醒词列表折叠
     var showKeywords by remember { mutableStateOf(false) }
+    // 唤醒词选择弹窗
+    var showKeywordPicker by remember { mutableStateOf(false) }
 
     // 模型导入：一个选择器，按当前待导入类别分流
     var pendingKind by remember { mutableStateOf<ModelKind?>(null) }
@@ -257,20 +260,14 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         Hint("⚠ 这个模型包里没有 keywords.txt，唤醒不会工作。请重新下载模型，或手动放入该文件。")
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { showKeywords = !showKeywords }) {
-                                Text(
-                                    if (showKeywords) "收起模型支持的唤醒词（${keywords.size}）"
-                                    else "查看模型支持的唤醒词（${keywords.size}）"
-                                )
-                            }
-                        }
-                        if (showKeywords) {
-                            keywords.forEach { entry ->
-                                TextButton(onClick = {
-                                    vm.update {
-                                        it.copy(wakeKeyword = entry.display, wakeKeywordLines = entry.rawLine)
-                                    }
-                                }) { Text(entry.display) }
+                            Text(
+                                "模型支持 ${keywords.size} 个唤醒词",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.size(10.dp))
+                            OutlinedButton(onClick = { showKeywordPicker = true }) {
+                                Text("选择")
                             }
                         }
                     }
@@ -281,6 +278,14 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     settings.wakeKeywordLines,
                     "每行一个，格式：token token @显示词\n留空 = 只用模型自带 keywords.txt"
                 ) { v -> vm.update { it.copy(wakeKeywordLines = v) } }
+
+                // 自定义词里如果出现中文（@ 前面），KWS 必然建流失败 —— 提前警告
+                val customHasChinese = settings.wakeKeywordLines.split('\n').any { line ->
+                    line.substringBefore('@').any { it.code > 127 }
+                }
+                if (customHasChinese) {
+                    Hint("⚠ 关键词里出现了中文。KWS 只认模型词表的拼写（如 x iǎo ài），写中文会导致唤醒失效。点上面的「选择」用模型自带的词更稳。")
+                }
 
                 OutlinedButton(onClick = { showAddKeyword = true }) {
                     Text("添加唤醒词（按模型格式生成）")
@@ -577,6 +582,48 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             title = { Text("测试结果") },
             text = { Text(msg) },
             confirmButton = { TextButton(onClick = { infoMessage = null }) { Text("关闭") } }
+        )
+    }
+
+    if (showKeywordPicker) {
+        val keywords = remember(settings.wakeModelDir) {
+            com.voiceassistant.model.KwsKeywords.read(settings.wakeModelDir)
+        }
+        AlertDialog(
+            onDismissRequest = { showKeywordPicker = false },
+            title = { Text("选择唤醒词") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (keywords.isEmpty()) {
+                        Text("这个模型包里没有 keywords.txt", style = MaterialTheme.typography.bodySmall)
+                    }
+                    keywords.forEach { entry ->
+                        val selected = entry.rawLine == settings.wakeKeywordLines
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.update {
+                                        it.copy(
+                                            wakeKeyword = entry.display,
+                                            wakeKeywordLines = entry.rawLine
+                                        )
+                                    }
+                                    showKeywordPicker = false
+                                }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = selected, onClick = null)
+                            Spacer(Modifier.size(10.dp))
+                            Text(entry.display, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showKeywordPicker = false }) { Text("关闭") }
+            }
         )
     }
 
