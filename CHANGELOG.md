@@ -1,5 +1,16 @@
 # 变更记录
 
+## v1.5.2（唤醒词选择回归 + 云端思考模型适配）
+
+- **唤醒词改回「点击选择」**：一行「模型支持 N 个唤醒词 + 选择」按钮，点开是列表弹窗，点一个即生效
+- **自定义关键词写坏不再拖死唤醒**：日志里 `Failed to create native OnlineStream` 是自定义词写了中文导致的。
+  现在自定义词建流失败会自动回退到模型自带词表，并在界面提示原因；关键词里出现中文会先警告
+- **云端支持「思考过程」型模型**：书生 intern-latest 返回的是 `Thinking Process:` 而不是 JSON。
+  新增严格重试：第一次拿不到 JSON 就追加「只输出 JSON、不要思考过程」再要一次（上限 768 tokens）
+- **模型下载完整性校验**：解压后没有任何 .onnx 或最大文件 < 200KB 就判定失败并清理，
+  避免出现 `Protobuf parsing failed` 的损坏模型
+- 首次请求 max_tokens 从 320 提到 512
+
 ## v1.5.1（日志定位出的三个真 bug）
 
 - **悬浮球终于能显示了**：日志显示 `Can't create handler inside thread ... has not called Looper.prepare()`——
