@@ -101,6 +101,23 @@ class ModelDownloader(private val context: Context) {
                 return@withContext null
             }
 
+            // 完整性校验：ONNX 文件太小说明解压/下载不完整，
+            // 这种文件加载时会报 "Protobuf parsing failed"
+            val onnxFiles = targetDir.walkTopDown()
+                .filter { it.isFile && it.name.endsWith(".onnx", ignoreCase = true) }
+                .toList()
+            if (onnxFiles.isEmpty()) {
+                DebugLog.w(TAG, "解压后没有找到任何 .onnx 文件")
+                targetDir.deleteRecursively()
+                return@withContext null
+            }
+            val biggest = onnxFiles.maxOf { it.length() }
+            if (biggest < 200_000L) {
+                DebugLog.w(TAG, "模型文件过小（最大 ${biggest}B），判定为下载不完整")
+                targetDir.deleteRecursively()
+                return@withContext null
+            }
+
             // 有些包解压后多一层同名目录，这里把它拍平
             val flattened = flattenSingleDir(targetDir)
             DebugLog.d(TAG, "模型就绪: ${flattened.absolutePath}")
