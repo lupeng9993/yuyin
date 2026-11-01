@@ -14,6 +14,7 @@ enum class TtsEngine(val id: String) {
 enum class CloudProvider(val id: String, val label: String) {
     DOUBAO("doubao", "豆包（火山方舟）"),
     QWEN("qwen", "通义千问（阿里云百炼）"),
+    DEEPSEEK("deepseek", "DeepSeek（深度求索）"),
     INTERNLM("internlm", "书生·浦语（InternLM）"),
     OPENAI_COMPATIBLE("openai_compatible", "OpenAI 兼容（通用）"),
     PRIVATE("private", "自定义私有接口");

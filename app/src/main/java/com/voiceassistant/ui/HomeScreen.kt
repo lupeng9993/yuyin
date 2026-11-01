@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -66,102 +68,184 @@ fun HomeScreen(vm: AppViewModel, onOpenSettings: () -> Unit) {
     val micGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
         PackageManager.PERMISSION_GRANTED
 
+    val wide = isWideLayout()
+
     Scaffold { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(padding),
+            contentAlignment = Alignment.TopCenter
         ) {
-            Text(
-                text = "本地语音助手",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            StatusCard(
-                running = state.serviceRunning,
-                paused = state.paused,
-                cloudEnabled = settings.cloudEnabled,
-                micGranted = micGranted,
-                keyword = settings.wakeKeyword,
-                wakeEngine = state.wakeEngine,
-                wakeKeywords = state.wakeKeywords,
-                wakeError = state.wakeError,
-                asrEngine = state.asrEngine,
-                asrError = state.asrError
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(230.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                ListeningOrb(
-                    listening = state.serviceRunning && !state.paused,
-                    paused = state.paused,
-                    onPauseToggle = { vm.togglePause() }
-                )
-            }
-
-            ResultCard(state)
-
-            if (settings.debugMode) {
-                DebugCard(state)
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Button(
-                    onClick = {
-                        if (state.serviceRunning) vm.stopListening() else vm.startListening()
-                    },
-                    modifier = Modifier.weight(1f)
+            if (wide) {
+                // 横屏（1920×1200 这类平板/车机）：左状态 + 右结果，避免整屏拉成一条
+                Row(
+                    modifier = Modifier
+                        .widthIn(max = 1400.dp)
+                        .fillMaxSize()
+                        .padding(horizontal = 36.dp, vertical = 28.dp),
+                    horizontalArrangement = Arrangement.spacedBy(32.dp)
                 ) {
-                    Icon(
-                        if (state.serviceRunning) Icons.Default.Stop else Icons.Default.Mic,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.size(6.dp))
-                    Text(if (state.serviceRunning) "停止监听" else "开始监听")
-                }
-                OutlinedButton(onClick = onOpenSettings, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(6.dp))
-                    Text("设置")
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedButton(onClick = { showSkills = true }, modifier = Modifier.weight(1f)) {
-                    Text("技能状态")
-                }
-                OutlinedButton(
-                    onClick = {
-                        vm.exportLogs { uri ->
-                            if (uri != null) vm.shareLogs(uri)
+                    Column(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(18.dp)
+                    ) {
+                        HomeTitle()
+                        StatusCard(
+                            running = state.serviceRunning,
+                            paused = state.paused,
+                            cloudEnabled = settings.cloudEnabled,
+                            micGranted = micGranted,
+                            keyword = settings.wakeKeyword,
+                            wakeEngine = state.wakeEngine,
+                            wakeKeywords = state.wakeKeywords,
+                            wakeError = state.wakeError,
+                            asrEngine = state.asrEngine,
+                            asrError = state.asrError
+                        )
+                        Box(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ListeningOrb(
+                                listening = state.serviceRunning && !state.paused,
+                                paused = state.paused,
+                                onPauseToggle = { vm.togglePause() }
+                            )
                         }
-                    },
-                    modifier = Modifier.weight(1f)
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        ResultCard(state)
+                        if (settings.debugMode) DebugCard(state)
+                        ActionButtons(
+                            running = state.serviceRunning,
+                            onToggleListen = {
+                                if (state.serviceRunning) vm.stopListening() else vm.startListening()
+                            },
+                            onOpenSettings = onOpenSettings,
+                            onShowSkills = { showSkills = true },
+                            onExportLogs = { vm.exportLogs { uri -> if (uri != null) vm.shareLogs(uri) } }
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("导出日志")
+                    HomeTitle()
+
+                    StatusCard(
+                        running = state.serviceRunning,
+                        paused = state.paused,
+                        cloudEnabled = settings.cloudEnabled,
+                        micGranted = micGranted,
+                        keyword = settings.wakeKeyword,
+                        wakeEngine = state.wakeEngine,
+                        wakeKeywords = state.wakeKeywords,
+                        wakeError = state.wakeError,
+                        asrEngine = state.asrEngine,
+                        asrError = state.asrError
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(230.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ListeningOrb(
+                            listening = state.serviceRunning && !state.paused,
+                            paused = state.paused,
+                            onPauseToggle = { vm.togglePause() }
+                        )
+                    }
+
+                    ResultCard(state)
+                    if (settings.debugMode) DebugCard(state)
+
+                    ActionButtons(
+                        running = state.serviceRunning,
+                        onToggleListen = {
+                            if (state.serviceRunning) vm.stopListening() else vm.startListening()
+                        },
+                        onOpenSettings = onOpenSettings,
+                        onShowSkills = { showSkills = true },
+                        onExportLogs = { vm.exportLogs { uri -> if (uri != null) vm.shareLogs(uri) } }
+                    )
+                    Spacer(Modifier.height(8.dp))
                 }
             }
-            Spacer(Modifier.height(8.dp))
         }
     }
 
     if (showSkills) {
         SkillsDialog(settings = settings, state = state, onDismiss = { showSkills = false })
+    }
+}
+
+@Composable
+private fun HomeTitle() {
+    Text(
+        text = "本地语音助手",
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.SemiBold
+    )
+}
+
+@Composable
+private fun ActionButtons(
+    running: Boolean,
+    onToggleListen: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onShowSkills: () -> Unit,
+    onExportLogs: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Button(onClick = onToggleListen, modifier = Modifier.weight(1f)) {
+                Icon(
+                    if (running) Icons.Default.Stop else Icons.Default.Mic,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.size(6.dp))
+                Text(if (running) "停止监听" else "开始监听")
+            }
+            OutlinedButton(onClick = onOpenSettings, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(6.dp))
+                Text("设置")
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(onClick = onShowSkills, modifier = Modifier.weight(1f)) {
+                Text("技能状态")
+            }
+            OutlinedButton(onClick = onExportLogs, modifier = Modifier.weight(1f)) {
+                Text("导出日志")
+            }
+        }
     }
 }
 

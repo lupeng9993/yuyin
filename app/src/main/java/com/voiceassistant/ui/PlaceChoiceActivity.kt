@@ -6,20 +6,24 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -43,22 +47,39 @@ class PlaceChoiceActivity : ComponentActivity() {
             return
         }
 
+        PlaceChoiceBridge.clearClose()
         setContent {
             VoiceAssistantTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    ChoiceList(
-                        places = places.map { it.name to it.address },
-                        onPick = { index ->
+                // 语音那边选完了就自己关掉
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        if (PlaceChoiceBridge.closeRequested) {
                             answered = true
-                            PlaceChoiceBridge.answer(index)
                             finish()
-                        },
-                        onCancel = {
-                            answered = true
-                            PlaceChoiceBridge.answer(null)
-                            finish()
+                            break
                         }
-                    )
+                        kotlinx.coroutines.delay(150)
+                    }
+                }
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        ChoiceList(
+                            places = places.map { it.name to it.address },
+                            onPick = { index ->
+                                answered = true
+                                PlaceChoiceBridge.answer(index)
+                                finish()
+                            },
+                            onCancel = {
+                                answered = true
+                                PlaceChoiceBridge.answer(null)
+                                finish()
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -79,13 +100,14 @@ private fun ChoiceList(
 ) {
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
+            .fillMaxHeight()
+            .widthIn(max = 900.dp)
+            .padding(if (isWideLayout()) 28.dp else 20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text("选择目的地", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
         Text(
-            "找到 ${places.size} 个结果，点一下直接开始导航",
+            "找到 ${places.size} 个结果，点一下直接开始导航；也可以直接说出序号或地名",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

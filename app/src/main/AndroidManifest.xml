@@ -100,6 +100,14 @@
             </intent-filter>
         </receiver>
 
+        <!-- Shizuku：可选增强，用于真正强制停止应用、模拟回车发送 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="false"
+            android:multiprocess="false" />
+
         <!-- 只用于导出日志时把文件共享给其它应用 -->
         <provider
             android:name="androidx.core.content.FileProvider"

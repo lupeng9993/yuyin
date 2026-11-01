@@ -29,6 +29,19 @@ object PlaceChoiceBridge {
     var startedOk: Boolean = false
         private set
 
+    /** 语音已经选好了，通知界面自己关掉 */
+    @Volatile
+    var closeRequested: Boolean = false
+        private set
+
+    fun requestClose() {
+        closeRequested = true
+    }
+
+    fun clearClose() {
+        closeRequested = false
+    }
+
     private var continuation: CancellableContinuation<Int?>? = null
 
     /** 弹出选择界面并等待结果；返回 null 表示取消或超时 */

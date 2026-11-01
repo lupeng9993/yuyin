@@ -31,7 +31,8 @@ class WechatExecutor(private val context: Context) {
         const val POLL_INTERVAL = 250L
     }
 
-    suspend fun send(action: VaAction): ActionResult = withContext(Dispatchers.Main) {
+    suspend fun send(action: VaAction, confirm: suspend (String) -> Boolean): ActionResult =
+        withContext(Dispatchers.Main) {
         val contact = action.contact.trim()
         val message = action.message.trim()
 
@@ -67,6 +68,14 @@ class WechatExecutor(private val context: Context) {
             A11yBridge.back()
             return@withContext fail(action, "未找到联系人「$contact」，消息未发送", "搜索结果为空（已排除搜索框）")
         }
+
+        // 进聊天之前先核对结果，避免发错人
+        val matchedName = resultNode.text?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: contact
+        if (!confirm("搜索到「$matchedName」，是要发给TA吗？说确认或取消。")) {
+            A11yBridge.back()
+            return@withContext ActionResult(action, false, "已取消，没有进入聊天", "结果核对后用户取消")
+        }
+
         if (!A11yBridge.click(resultNode)) {
             return@withContext fail(action, "点不开联系人「$contact」", "点击失败")
         }
@@ -84,9 +93,26 @@ class WechatExecutor(private val context: Context) {
         if (!A11yBridge.setText(chatInput, message)) {
             return@withContext fail(action, "输入消息失败", "ACTION_SET_TEXT 失败")
         }
-        delay(600)
+        delay(800)
 
-        // 6. 发送
+        // 先确认消息真的落到了输入框里（不然回车会发出去个空消息）
+        val typed = chatInput.text?.toString().orEmpty()
+        if (typed.isBlank()) {
+            return@withContext fail(action, "消息没输进去，已中止发送", "输入框内容为空")
+        }
+
+        // 输入完成之后才做语音确认——顺序反过来更容易确认"发的就是这个"
+        if (!confirm("给$matchedName发「$message」，确认发送吗？")) {
+            return@withContext ActionResult(action, false, "已取消发送", "用户在输入完成后取消")
+        }
+
+        // 发送：有 Shizuku 就模拟回车（最贴近真人操作），否则点「发送」按钮
+        if (ShellExecutor.granted() && ShellExecutor.keyEvent(66)) {
+            delay(600)
+            DebugLog.d(TAG, "已用回车发送给 $contact")
+            return@withContext ActionResult(action, true, "消息已发送给$contact", "enter via shizuku, contact=$contact")
+        }
+
         val sendButton = awaitNode("发送按钮") {
             A11yBridge.findNode(A11yBridge.TextFilter(contentDesc = "发送"))
                 ?: A11yBridge.findNode(A11yBridge.TextFilter(exact = "发送"))

@@ -8,14 +8,17 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -130,15 +133,27 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
         importLauncher.launch(arrayOf("*/*"))
     }
 
+    val wide = isWideLayout()
+
     Scaffold { padding ->
-        Column(
+        // 宽屏（横屏平板/车机）内容居中限宽，避免卡片被拉成一条
+        Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(padding),
+            contentAlignment = Alignment.TopCenter
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .widthIn(max = 1000.dp)
                 .swipeBackToDismiss(onBack)
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(
+                    horizontal = if (wide) 32.dp else 16.dp,
+                    vertical = if (wide) 20.dp else 8.dp
+                ),
+            verticalArrangement = Arrangement.spacedBy(if (wide) 14.dp else 10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
@@ -536,11 +551,30 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 }) { Text("导出运行日志") }
 
                 Divider(Modifier.padding(vertical = 6.dp))
+                var shizukuTick by remember { mutableStateOf(0) }
+                Text(
+                    "Shizuku：${com.voiceassistant.exec.ShellExecutor.stateText()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = {
+                        com.voiceassistant.exec.ShellExecutor.requestPermission()
+                        shizukuTick++
+                    }) { Text("请求 Shizuku 授权") }
+                    OutlinedButton(onClick = { shizukuTick++ }) { Text("刷新状态") }
+                }
+                // 引用 tick，保证刷新时重新读取状态
+                if (shizukuTick < 0) Text("")
+                Hint("装了 Shizuku 才能「真正」强制关闭别的应用、以及用回车键发送微信。没装也不影响其它功能。")
+
+                Divider(Modifier.padding(vertical = 6.dp))
                 OutlinedButton(onClick = { showReset = true }) { Text("重置全部配置") }
                 Hint("重置只恢复设置，不删除已下载或导入的模型文件。")
             }
 
             Spacer(Modifier.height(24.dp))
+        }
         }
     }
 

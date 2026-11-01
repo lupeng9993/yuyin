@@ -491,7 +491,7 @@ class WakeService : Service() {
         val outcome = Dispatcher(
             context = applicationContext,
             settings = settings,
-            confirm = { action -> askConfirm(action) },
+            confirm = { question -> askQuestion(question) },
             choosePlace = { places -> askPlaceChoice(places) }
         ).dispatch(plan)
 
@@ -510,24 +510,46 @@ class WakeService : Service() {
 
     // ---------------- 导航候选选择 ----------------
 
-    /** 导航有多个候选地点：念出来让用户挑一个 */
+    /** 导航有多个候选地点：界面点选和语音选择同时进行，谁先给结果用谁 */
     private suspend fun askPlaceChoice(
         places: List<com.voiceassistant.exec.NavigationExecutor.Place>
     ): com.voiceassistant.exec.NavigationExecutor.Place? {
         if (places.isEmpty()) return null
         if (places.size == 1) return places.first()
 
-        // 先弹界面点选（比念序号可靠）；界面起不来才退回语音
-        val index = withTimeoutOrNull(30_000L) {
-            com.voiceassistant.exec.PlaceChoiceBridge.ask(this@WakeService, places)
+        val result = kotlinx.coroutines.CompletableDeferred<Int?>()
+        val index = kotlinx.coroutines.coroutineScope {
+            val uiJob = launch {
+                val picked = com.voiceassistant.exec.PlaceChoiceBridge.ask(this@WakeService, places)
+                // 只有界面真的弹出来了才把 null 当成"用户取消"
+                if (com.voiceassistant.exec.PlaceChoiceBridge.startedOk && !result.isCompleted) {
+                    result.complete(picked)
+                }
+            }
+            val voiceJob = launch {
+                val picked = listenForPlace(places)
+                if (picked != null && !result.isCompleted) {
+                    result.complete(picked)
+                    // 语音已经选完了，把弹出的界面关掉
+                    com.voiceassistant.exec.PlaceChoiceBridge.requestClose()
+                }
+            }
+            val idx = withTimeoutOrNull(30_000L) { result.await() }
+            uiJob.cancel()
+            voiceJob.cancel()
+            com.voiceassistant.exec.PlaceChoiceBridge.requestClose()
+            idx
         }
-        if (com.voiceassistant.exec.PlaceChoiceBridge.startedOk) {
-            return index?.let { places.getOrNull(it) }
-        }
+        return index?.let { places.getOrNull(it) }
+    }
 
+    /** 念出候选并用语音挑一个，返回序号；没听清返回 null */
+    private suspend fun listenForPlace(
+        places: List<com.voiceassistant.exec.NavigationExecutor.Place>
+    ): Int? {
         val question = buildString {
             append("找到${places.size}个地方：")
-            places.forEachIndexed { index, place -> append("${index + 1}，${place.name}。") }
+            places.forEachIndexed { i, place -> append("${i + 1}，${place.name}。") }
             append("说序号，或者直接说地名。")
         }
         state = State.SPEAKING
@@ -542,27 +564,22 @@ class WakeService : Service() {
         DebugLog.d(TAG, "地点选择回答: $answer")
 
         Regex("[1-9]").find(answer)?.value?.toIntOrNull()?.let { n ->
-            if (n in 1..places.size) return places[n - 1]
+            if (n in places.indices) return n
         }
-        val chineseNumbers = mapOf('一' to 1, '二' to 2, '两' to 2, '三' to 3, '四' to 4, '五' to 5)
+        val chineseNumbers = mapOf('一' to 0, '二' to 1, '两' to 1, '三' to 2, '四' to 3, '五' to 4)
         answer.firstOrNull { chineseNumbers.containsKey(it) }?.let { ch ->
-            chineseNumbers[ch]?.let { n -> if (n in 1..places.size) return places[n - 1] }
+            val n = chineseNumbers[ch] ?: return@let
+            if (n in places.indices) return n
         }
-        places.firstOrNull { p ->
+        places.indexOfFirst { p ->
             answer.contains(p.name) || (p.name.length >= 2 && answer.contains(p.name.take(2)))
-        }?.let { return it }
+        }.let { if (it >= 0) return it }
         return null
     }
 
     // ---------------- 二次确认（语音） ----------------
 
-    private suspend fun askConfirm(action: VaAction): Boolean {
-        val question = when (action.type) {
-            com.voiceassistant.nlu.ActionType.SEND_WECHAT ->
-                getString(com.voiceassistant.R.string.tts_confirm_wechat, action.contact, action.message)
-            else -> "确认执行吗？说确认或取消。"
-        }
-
+    private suspend fun askQuestion(question: String): Boolean {
         state = State.SPEAKING
         speakSafely(question)
         delay(200)

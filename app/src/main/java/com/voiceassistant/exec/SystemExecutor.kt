@@ -43,6 +43,7 @@ class SystemExecutor(private val context: Context) {
         data object PlayPause : Command
         data object Next : Command
         data object Previous : Command
+        data object GoHome : Command
         data object Unsupported : Command
     }
 
@@ -81,6 +82,7 @@ class SystemExecutor(private val context: Context) {
             is Command.PlaySong -> playSong(action, command.query)
             is Command.ShopSearch -> shopSearch(action, command.app, command.keyword)
             is Command.PlayPause -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, "已切换播放状态")
+            is Command.GoHome -> goHome(action)
             is Command.Next -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_NEXT, "已切到下一首")
             is Command.Previous -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PREVIOUS, "已切到上一首")
             is Command.Unsupported -> ActionResult(action, false, "这个操作我还不支持", "未匹配到系统指令")
@@ -152,6 +154,12 @@ class SystemExecutor(private val context: Context) {
         return try {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
 
+            // 第 0 步：有 Shizuku 就直接 force-stop，这才是真正能停掉应用的方式
+            if (ShellExecutor.granted() && ShellExecutor.forceStop(pkg)) {
+                DebugLog.d(TAG, "Shizuku force-stop 成功 $pkg")
+                return ActionResult(action, true, "已关闭$label", "shizuku am force-stop pkg=$pkg")
+            }
+
             // 第一步：先回桌面。前台应用系统不允许杀，必须让它先变成后台
             if (A11yBridge.isReady()) {
                 A11yBridge.home()
@@ -183,6 +191,17 @@ class SystemExecutor(private val context: Context) {
         } catch (e: Exception) {
             DebugLog.e(TAG, "关闭应用失败", e)
             ActionResult(action, false, "关闭「$query」失败", e.message.orEmpty())
+        }
+    }
+
+    private fun goHome(action: VaAction): ActionResult {
+        if (!A11yBridge.isReady()) {
+            return ActionResult(action, false, "回桌面需要先开启无障碍服务", "A11yBridge 不可用")
+        }
+        return if (A11yBridge.home()) {
+            ActionResult(action, true, "已回到桌面", "GLOBAL_ACTION_HOME")
+        } else {
+            ActionResult(action, false, "没能回到桌面", "performGlobalAction 返回 false")
         }
     }
 
@@ -362,6 +381,13 @@ class SystemExecutor(private val context: Context) {
 
         // 截屏
         if (t.contains("截屏") || t.contains("截图") || t.contains("屏幕截图")) return Command.Screenshot
+
+        // 回到桌面
+        if (Regex("^(?:回到|返回|显示|打开|去)?(?:桌面|主页|主屏幕|首页|home)$", RegexOption.IGNORE_CASE).matches(t) ||
+            t == "桌面" || t == "回桌面"
+        ) {
+            return Command.GoHome
+        }
 
         // 音量
         if (t.contains("静音")) return Command.Mute

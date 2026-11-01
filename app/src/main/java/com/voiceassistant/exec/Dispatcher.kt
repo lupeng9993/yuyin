@@ -16,8 +16,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class Dispatcher(
     private val context: Context,
     private val settings: AppSettings,
-    /** 语音二次确认：返回 true 表示用户确认 */
-    private val confirm: suspend (VaAction) -> Boolean,
+    /** 语音二次确认：把问题念给用户，返回 true 表示确认 */
+    private val confirm: suspend (String) -> Boolean,
     /** 导航有多个候选地点时，让上层（语音/界面）挑一个 */
     private val choosePlace: suspend (List<NavigationExecutor.Place>) -> NavigationExecutor.Place?
 ) {
@@ -55,13 +55,12 @@ class Dispatcher(
                 continue
             }
 
-            val needsConfirm = when (action.type) {
-                ActionType.SEND_WECHAT -> true // 微信发送永远二次确认
-                ActionType.NAVIGATE -> settings.navConfirm
-                else -> false
-            }
+            // 微信的确认放在执行器内部：等搜索出结果、消息输入完成后再问，
+            // 这里就不再重复问一遍了
+            val needsConfirm = action.type == ActionType.NAVIGATE && settings.navConfirm
             if (needsConfirm) {
-                val confirmed = confirm(action)
+                val question = "确认导航到${action.destination}吗？说确认或取消。"
+                val confirmed = confirm(question)
                 if (!confirmed) {
                     results.add(ActionResult(action, false, "已取消", "用户取消确认"))
                     DebugLog.d(TAG, "用户取消: ${action.summary()}")
@@ -87,7 +86,7 @@ class Dispatcher(
 
     private suspend fun execute(action: VaAction): ActionResult = when (action.type) {
         ActionType.NAVIGATE -> navigation.execute(action, choosePlace)
-        ActionType.SEND_WECHAT -> wechat.send(action)
+        ActionType.SEND_WECHAT -> wechat.send(action, confirm)
         ActionType.OTHER -> system.execute(action)
         ActionType.UNKNOWN -> ActionResult(action, false, "无法识别该指令", action.reason)
     }

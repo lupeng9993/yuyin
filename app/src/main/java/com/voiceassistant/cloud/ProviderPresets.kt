@@ -29,6 +29,14 @@ object ProviderPresets {
             model = "qwen-plus",
             hint = "百炼兼容模式地址；模型可选 qwen-plus / qwen-turbo / qwen-max。"
         ),
+        CloudProvider.DEEPSEEK to ProviderPreset(
+            provider = CloudProvider.DEEPSEEK,
+            // 注意必须带 /v1：不带的话我们拼出来的 /chat/completions 会 404
+            baseUrl = "https://api.deepseek.com/v1",
+            model = "deepseek-chat",
+            hint = "地址必须是 https://api.deepseek.com/v1（带 /v1）。模型用 deepseek-chat（快）或 " +
+                "deepseek-reasoner（会先输出思考过程，慢但更准）。支持强制 JSON。"
+        ),
         CloudProvider.INTERNLM to ProviderPreset(
             provider = CloudProvider.INTERNLM,
             baseUrl = "https://chat.intern-ai.org.cn/api/v1",
