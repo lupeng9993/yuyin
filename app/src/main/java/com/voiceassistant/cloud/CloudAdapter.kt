@@ -39,7 +39,12 @@ interface CloudAdapter {
 
     /**
      * 把用户文本交给大模型，返回模型给出的原始文本（未清洗）。
+     * [systemPrompt] 默认是固定的意图解析提示词；聊天场景会换成闲聊提示词。
      * 传输层错误一律以 [CloudCall.error] 返回，不抛异常给上层。
      */
-    suspend fun complete(text: String, settings: AppSettings): CloudCall
+    suspend fun complete(
+        text: String,
+        settings: AppSettings,
+        systemPrompt: String = com.voiceassistant.nlu.SystemPrompt.TEXT
+    ): CloudCall
 }

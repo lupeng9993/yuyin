@@ -56,4 +56,24 @@ class CloudIntentService {
     }
 
     private fun source() = com.voiceassistant.nlu.ActionPlan.Source.CLOUD
+
+    /**
+     * 闲聊 / 查询：本地规则和意图解析都没接住时，把原话丢给模型，直接取自然语言回答。
+     * 注意这**不会**产生任何动作，纯播报。
+     */
+    private val chatPrompt = """
+你是手机里的语音助手。用户会随口跟你说话或提问题。
+要求：用自然的中文口语回答，控制在 60 字以内；不要用 Markdown、不要列点、不要表情符号；不要提"作为AI"这类话；没把握就直说不知道。
+    """.trimIndent()
+
+    suspend fun chat(text: String, settings: AppSettings): String? {
+        val adapter = adapters[settings.cloudProvider.id]
+            ?: OpenAiCompatibleAdapter(settings.cloudProvider.id)
+        val call = adapter.complete(text, settings, chatPrompt)
+        if (!call.ok) {
+            DebugLog.w("Cloud", "闲聊调用失败 ${call.error?.kind} ${call.error?.detail}")
+            return null
+        }
+        return call.content.trim().ifBlank { null }
+    }
 }

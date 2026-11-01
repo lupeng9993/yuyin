@@ -71,7 +71,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             _download.value = DownloadState(
-                entryId = entry.id, running = false, percent = 100, message = "已安装：${entry.title}"
+                entryId = entry.id,
+                running = false,
+                percent = 100,
+                message = "已安装并自动选用：${entry.title}"
             )
         }
     }

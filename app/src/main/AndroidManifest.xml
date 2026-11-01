@@ -59,6 +59,15 @@
             </intent-filter>
         </activity>
 
+        <!-- 导航候选选择：说出目的地后弹出，点选即导航 -->
+        <activity
+            android:name=".ui.PlaceChoiceActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.voiceassistant.choice"
+            android:theme="@style/Theme.VoiceAssistant" />
+
         <!-- 常驻唤醒服务：前台服务 + 麦克风类型 -->
         <service
             android:name=".service.WakeService"

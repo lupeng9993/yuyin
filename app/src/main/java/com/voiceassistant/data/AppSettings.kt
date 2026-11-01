@@ -63,6 +63,8 @@ data class AppSettings(
     val cloudTimeoutSec: Int = 30,
     val cloudForceJson: Boolean = true,
     val cloudAutoFallback: Boolean = true,
+    /** 匹配不到指令时，让大模型直接聊天/回答（纯播报，不执行动作） */
+    val chatFallbackEnabled: Boolean = true,
 
     // ---- 分组三：技能 ----
     val navEnabled: Boolean = false,

@@ -78,6 +78,7 @@ class SettingsRepository private constructor(context: Context) {
             cloudTimeoutSec = prefs[K.cloudTimeoutSec] ?: default.cloudTimeoutSec,
             cloudForceJson = prefs[K.cloudForceJson] ?: default.cloudForceJson,
             cloudAutoFallback = prefs[K.cloudAutoFallback] ?: default.cloudAutoFallback,
+            chatFallbackEnabled = prefs[K.chatFallback] ?: default.chatFallbackEnabled,
             navEnabled = prefs[K.navEnabled] ?: default.navEnabled,
             amapKey = SecureStore.decrypt(prefs[K.amapKeyEnc] ?: ""),
             amapSecurityKey = SecureStore.decrypt(prefs[K.amapSecurityEnc] ?: ""),
@@ -122,6 +123,7 @@ class SettingsRepository private constructor(context: Context) {
         m[K.cloudTimeoutSec] = s.cloudTimeoutSec
         m[K.cloudForceJson] = s.cloudForceJson
         m[K.cloudAutoFallback] = s.cloudAutoFallback
+        m[K.chatFallback] = s.chatFallbackEnabled
         m[K.navEnabled] = s.navEnabled
         if (s.amapKey.isNotEmpty()) m[K.amapKeyEnc] = SecureStore.encrypt(s.amapKey) else m.remove(K.amapKeyEnc)
         if (s.amapSecurityKey.isNotEmpty()) m[K.amapSecurityEnc] = SecureStore.encrypt(s.amapSecurityKey)
@@ -166,6 +168,7 @@ class SettingsRepository private constructor(context: Context) {
         val cloudTimeoutSec = intPreferencesKey("cloud_timeout_sec")
         val cloudForceJson = booleanPreferencesKey("cloud_force_json")
         val cloudAutoFallback = booleanPreferencesKey("cloud_auto_fallback")
+        val chatFallback = booleanPreferencesKey("chat_fallback")
         val navEnabled = booleanPreferencesKey("nav_enabled")
         val amapKeyEnc = stringPreferencesKey("amap_key_enc")
         val amapSecurityEnc = stringPreferencesKey("amap_security_enc")

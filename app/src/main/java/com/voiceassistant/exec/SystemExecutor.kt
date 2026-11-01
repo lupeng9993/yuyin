@@ -1,10 +1,15 @@
 package com.voiceassistant.exec
 
 import android.app.ActivityManager
+import android.app.SearchManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.media.AudioManager
+import android.net.Uri
+import android.provider.MediaStore
 import android.view.KeyEvent
 import com.voiceassistant.log.DebugLog
 import com.voiceassistant.nlu.VaAction
@@ -33,6 +38,8 @@ class SystemExecutor(private val context: Context) {
         data object Screenshot : Command
         data class OpenApp(val query: String) : Command
         data class CloseApp(val query: String) : Command
+        data class PlaySong(val query: String) : Command
+        data class ShopSearch(val app: String, val keyword: String) : Command
         data object PlayPause : Command
         data object Next : Command
         data object Previous : Command
@@ -71,6 +78,8 @@ class SystemExecutor(private val context: Context) {
             is Command.Screenshot -> takeScreenshot(action)
             is Command.OpenApp -> openApp(action, command.query)
             is Command.CloseApp -> closeApp(action, command.query)
+            is Command.PlaySong -> playSong(action, command.query)
+            is Command.ShopSearch -> shopSearch(action, command.app, command.keyword)
             is Command.PlayPause -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, "已切换播放状态")
             is Command.Next -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_NEXT, "已切到下一首")
             is Command.Previous -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PREVIOUS, "已切到上一首")
@@ -155,6 +164,98 @@ class SystemExecutor(private val context: Context) {
         }
     }
 
+    /** 「来一首晴天」：走系统媒体搜索 Intent，多数播放器都支持 */
+    private fun playSong(action: VaAction, query: String): ActionResult {
+        val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+            putExtra(SearchManager.QUERY, query)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            val resolved = context.packageManager.resolveActivity(intent, 0)
+            if (resolved != null) {
+                context.startActivity(intent)
+                ActionResult(
+                    action, true, "好的，播放$query",
+                    "PLAY_FROM_SEARCH → ${resolved.activityInfo.packageName}"
+                )
+            } else {
+                val pkg = AppLauncher.resolve(context, "音乐") ?: AppLauncher.resolve(context, "网易云")
+                if (pkg != null) {
+                    context.packageManager.getLaunchIntentForPackage(pkg)?.let {
+                        it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(it)
+                    }
+                    ActionResult(
+                        action, false,
+                        "没有播放器支持按歌名搜索，已帮你打开${AppLauncher.labelOf(context, pkg) ?: "音乐"}",
+                        "无 MEDIA_PLAY_FROM_SEARCH 接收方"
+                    )
+                } else {
+                    ActionResult(action, false, "没找到能播放音乐的 App", "无接收方且无音乐应用")
+                }
+            }
+        } catch (e: Exception) {
+            DebugLog.e(TAG, "播放歌曲失败", e)
+            ActionResult(action, false, "播放失败", e.message.orEmpty())
+        }
+    }
+
+    /**
+     * 「在淘宝搜蓝牙耳机」：打开对应 App 并把关键词放进剪贴板。
+     * 明确不做下单/支付——那需要支付密码和平台风控，自动化既做不到也不该做。
+     */
+    private fun shopSearch(action: VaAction, appName: String, keyword: String): ActionResult {
+        val pkg = AppLauncher.resolve(context, appName)
+            ?: return ActionResult(action, false, "手机里没找到「$appName」", "包名未匹配")
+
+        copyToClipboard(keyword)
+
+        val encoded = Uri.encode(keyword)
+        val uri = when (appName) {
+            "淘宝" -> "taobao://s.taobao.com/search?q=$encoded"
+            "闲鱼" -> "fleamarket://search?keyword=$encoded"
+            "美团" -> "imeituan://www.meituan.com/search?q=$encoded"
+            else -> null
+        }
+        if (uri != null) {
+            try {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                return ActionResult(
+                    action, true, "已打开$appName，搜索「$keyword」。下单要你自己确认支付",
+                    "uri=$uri"
+                )
+            } catch (e: Exception) {
+                DebugLog.w(TAG, "搜索链接打不开，退回启动应用: ${e.message}")
+            }
+        }
+
+        return try {
+            val launch = context.packageManager.getLaunchIntentForPackage(pkg)
+                ?: return ActionResult(action, false, "$appName 打不开", "无启动入口")
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(launch)
+            ActionResult(
+                action, true,
+                "已打开$appName，搜索词「$keyword」已复制，粘贴就能搜。下单我不代做，要你自己确认支付",
+                "pkg=$pkg keyword=$keyword"
+            )
+        } catch (e: Exception) {
+            DebugLog.e(TAG, "打开购物应用失败", e)
+            ActionResult(action, false, "打开$appName失败", e.message.orEmpty())
+        }
+    }
+
+    private fun copyToClipboard(text: String) {
+        try {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("voiceassistant", text))
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "复制到剪贴板失败: ${e.message}")
+        }
+    }
+
     private suspend fun takeScreenshot(action: VaAction): ActionResult {
         if (!A11yBridge.isReady()) {
             return ActionResult(action, false, "截屏需要先开启无障碍服务", "A11yBridge 未就绪")
@@ -195,16 +296,33 @@ class SystemExecutor(private val context: Context) {
             ) return Command.VolumeDown
         }
 
-        // 媒体
-        if (t.contains("暂停") || t.contains("继续播放") || t.contains("播放")) return Command.PlayPause
-        if (t.contains("下一首") || t.contains("切歌")) return Command.Next
-        if (t.contains("上一首")) return Command.Previous
-
         // 关闭应用
         val closeMatch = Regex("^(?:关闭|关掉|退出|杀掉|结束|关)(.+)$").find(t)
         if (closeMatch != null) {
             val target = cleanTarget(closeMatch.groupValues[1])
             if (target.isNotEmpty()) return Command.CloseApp(target)
+        }
+
+        // 购物类：在淘宝/拼多多/美团…搜索或买东西
+        val shopApps = listOf("淘宝", "拼多多", "美团", "京东", "闲鱼", "天猫")
+        val shopApp = shopApps.firstOrNull { t.contains(it) }
+        if (shopApp != null) {
+            val keyword = t
+                .replace(shopApp, "")
+                .replace(Regex("^(?:在|打开|请|帮我|给我|用)"), "")
+                .replace(Regex("(?:上|里)?(?:帮我|给我)?"), "")
+                .replace(Regex("(?:搜索|搜一下|搜|找一下|找|购买|买点|买)"), "")
+                .replace(Regex("[吧呀啊]$"), "")
+                .trim()
+            if (keyword.isNotEmpty()) return Command.ShopSearch(shopApp, keyword)
+        }
+
+        // 播放指定歌曲：「来一首晴天」「播放晴天」「放晴天」
+        Regex("^(?:播放|放|来一首|来首|听一下|听)(.+)$").find(t)?.let { m ->
+            val song = m.groupValues[1].replace(Regex("[吧呀啊]$"), "").trim()
+            if (song.isNotEmpty() && song !in listOf("音乐", "歌", "歌曲", "视频", "声音")) {
+                return Command.PlaySong(song)
+            }
         }
 
         // 打开应用
@@ -213,6 +331,11 @@ class SystemExecutor(private val context: Context) {
             val target = cleanTarget(openMatch.groupValues[1])
             if (target.isNotEmpty()) return Command.OpenApp(target)
         }
+
+        // 媒体键（放在「播放歌名」之后，避免把歌名吃成暂停/播放）
+        if (t.contains("暂停") || t.contains("继续播放") || t.contains("播放")) return Command.PlayPause
+        if (t.contains("下一首") || t.contains("切歌")) return Command.Next
+        if (t.contains("上一首")) return Command.Previous
 
         return Command.Unsupported
     }

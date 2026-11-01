@@ -31,6 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 
@@ -411,7 +412,23 @@ class WakeService : Service() {
         AppStateBus.onDebug(asr = text, parseState = "ASR 完成")
         DebugLog.d(TAG, "识别文本: $text")
 
-        val plan = understand(text) ?: run {
+        val plan = understand(text)
+        if (plan == null) {
+            // 兜底：让模型直接回答（聊天/查询类），只播报，不执行任何动作
+            if (settings.cloudEnabled && settings.chatFallbackEnabled) {
+                val answer = try {
+                    cloud.chat(text, settings)
+                } catch (e: Exception) {
+                    DebugLog.e(TAG, "闲聊失败", e)
+                    null
+                }
+                if (!answer.isNullOrBlank()) {
+                    AppStateBus.onDebug(cloudRaw = answer, parseState = "闲聊回答")
+                    AppStateBus.onResult("对话回答：$answer")
+                    speakSafely(answer)
+                    return
+                }
+            }
             speakSafely(getString(com.voiceassistant.R.string.tts_unknown_command))
             val reason = lastUnderstandError
             AppStateBus.onResult(
@@ -499,6 +516,14 @@ class WakeService : Service() {
     ): com.voiceassistant.exec.NavigationExecutor.Place? {
         if (places.isEmpty()) return null
         if (places.size == 1) return places.first()
+
+        // 先弹界面点选（比念序号可靠）；界面起不来才退回语音
+        val index = withTimeoutOrNull(30_000L) {
+            com.voiceassistant.exec.PlaceChoiceBridge.ask(this@WakeService, places)
+        }
+        if (com.voiceassistant.exec.PlaceChoiceBridge.startedOk) {
+            return index?.let { places.getOrNull(it) }
+        }
 
         val question = buildString {
             append("找到${places.size}个地方：")

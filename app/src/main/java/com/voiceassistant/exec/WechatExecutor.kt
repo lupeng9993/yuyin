@@ -13,9 +13,14 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * 微信发送执行器（无障碍）。
  *
- * 现实约束：微信没有对外接口，只能靠无障碍遍历界面节点，微信一改版就可能失效。
- * 因此这里全程按「步骤 + 超时 + 明确失败原因」实现，任何一步找不到就停下并回报，
- * 绝不盲点，避免误发消息。
+ * 踩过的坑（日志里"进不去聊天界面"就是它）：
+ * 搜索框本身是个可编辑节点，输入完联系人后，**搜索框里就有这串字**，
+ * 如果按文本找"结果"，会把搜索框自己点一遍，然后一直停在搜索结果页。
+ *
+ * 所以这里的做法是：
+ * 1. 记住搜索框节点，后面所有"找结果""找输入框"都把它排除掉；
+ * 2. 点结果后必须等到一个**不同于搜索框**的可编辑节点，才算进了聊天界面；
+ * 3. 每一步都有超时和明确的失败原因，找不到就停，绝不盲点。
  */
 class WechatExecutor(private val context: Context) {
 
@@ -32,15 +37,12 @@ class WechatExecutor(private val context: Context) {
 
         if (contact.isEmpty()) return@withContext fail(action, "没有听到联系人", "contact 为空")
         if (message.isEmpty()) return@withContext fail(action, "没有听到要发送的内容", "message 为空")
-
         if (!A11yBridge.isReady()) {
             return@withContext fail(action, "需要先开启无障碍服务才能发微信", "无障碍未连接")
         }
 
-        // 1. 启动微信
-        if (!launchWechat()) {
-            return@withContext fail(action, "没有安装微信", "未找到 $WECHAT_PKG")
-        }
+        // 1. 打开微信
+        if (!launchWechat()) return@withContext fail(action, "没有安装微信", "未找到 $WECHAT_PKG")
         waitForPackage(WECHAT_PKG)
 
         // 2. 点搜索
@@ -48,36 +50,36 @@ class WechatExecutor(private val context: Context) {
             A11yBridge.findNode(A11yBridge.TextFilter(contentDesc = "搜索"))
                 ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "搜索"))
         }
-        if (searchEntry != null && !A11yBridge.click(searchEntry)) {
-            DebugLog.w(TAG, "点击搜索入口失败，继续尝试直接找输入框")
-        }
+        if (searchEntry != null) A11yBridge.click(searchEntry)
 
-        // 3. 输入联系人
-        val input = awaitNode("搜索输入框") { findEditable() }
+        // 3. 找到搜索框并记住它（后面要排除）
+        val searchInput = awaitNode("搜索输入框") { findEditable(exclude = null) }
             ?: return@withContext fail(action, "微信界面变化了，找不到搜索框", "editable 节点缺失")
 
-        if (!A11yBridge.setText(input, contact)) {
+        if (!A11yBridge.setText(searchInput, contact)) {
             return@withContext fail(action, "输入联系人失败", "ACTION_SET_TEXT 失败")
         }
-        delay(1200)
+        delay(1500)
 
-        // 4. 点搜索结果
-        val resultNode = awaitNode("联系人结果") {
-            A11yBridge.findNode(A11yBridge.TextFilter(exact = contact))
-                ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = contact))
-        }
+        // 4. 点搜索结果：文本匹配，但**不能是搜索框本身**
+        val resultNode = awaitNode("联系人结果") { findResult(contact, exclude = searchInput) }
         if (resultNode == null) {
             A11yBridge.back()
-            return@withContext fail(action, "未找到联系人「$contact」，消息未发送", "搜索结果为空")
+            return@withContext fail(action, "未找到联系人「$contact」，消息未发送", "搜索结果为空（已排除搜索框）")
         }
         if (!A11yBridge.click(resultNode)) {
             return@withContext fail(action, "点不开联系人「$contact」", "点击失败")
         }
-        delay(1200)
 
-        // 5. 聊天输入框
-        val chatInput = awaitNode("聊天输入框") { findEditable() }
-            ?: return@withContext fail(action, "进不到聊天界面", "聊天输入框缺失")
+        // 5. 等一个「不是搜索框」的输入框 = 真正进了聊天界面
+        val chatInput = awaitNode("聊天输入框") { findEditable(exclude = searchInput) }
+        if (chatInput == null) {
+            return@withContext fail(
+                action,
+                "没进到和「$contact」的聊天界面，消息未发送",
+                "点击后仍未出现聊天输入框"
+            )
+        }
 
         if (!A11yBridge.setText(chatInput, message)) {
             return@withContext fail(action, "输入消息失败", "ACTION_SET_TEXT 失败")
@@ -95,7 +97,7 @@ class WechatExecutor(private val context: Context) {
             return@withContext fail(action, "点击发送失败", "click 返回 false")
         }
 
-        delay(500)
+        delay(600)
         DebugLog.d(TAG, "消息已发送给 $contact")
         ActionResult(action, true, "消息已发送给$contact", "contact=$contact")
     }
@@ -105,29 +107,27 @@ class WechatExecutor(private val context: Context) {
         return ActionResult(action, false, speech, detail)
     }
 
-    private fun launchWechat(): Boolean {
-        return try {
-            val intent = context.packageManager.getLaunchIntentForPackage(WECHAT_PKG)
-                ?: return false
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-            true
-        } catch (e: Exception) {
-            DebugLog.e(TAG, "启动微信失败", e)
-            false
-        }
+    private fun launchWechat(): Boolean = try {
+        val intent = context.packageManager.getLaunchIntentForPackage(WECHAT_PKG) ?: return false
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        true
+    } catch (e: Exception) {
+        DebugLog.e(TAG, "启动微信失败", e)
+        false
     }
 
     private suspend fun waitForPackage(pkg: String) {
         withTimeoutOrNull(STEP_TIMEOUT) {
-            while (A11yBridge.currentWindowPackage() != pkg) {
-                delay(POLL_INTERVAL)
-            }
+            while (A11yBridge.currentWindowPackage() != pkg) delay(POLL_INTERVAL)
         }
     }
 
-    /** 轮询等待节点出现，超时返回 null */
-    private suspend fun awaitNode(label: String, finder: () -> AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+    /** 轮询等待节点出现 */
+    private suspend fun awaitNode(
+        label: String,
+        finder: () -> AccessibilityNodeInfo?
+    ): AccessibilityNodeInfo? {
         val node = withTimeoutOrNull(STEP_TIMEOUT) {
             var found: AccessibilityNodeInfo? = null
             while (found == null) {
@@ -140,19 +140,59 @@ class WechatExecutor(private val context: Context) {
         return node
     }
 
-    private fun findEditable(): AccessibilityNodeInfo? {
+    /** 可编辑节点；[exclude] 用于排除搜索框 */
+    private fun findEditable(exclude: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         val root = A11yBridge.service()?.rootInActiveWindow ?: return null
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
         var visited = 0
-        while (queue.isNotEmpty() && visited < 800) {
+        while (queue.isNotEmpty() && visited < 900) {
             val node = queue.removeFirst()
             visited++
-            if (node.isEditable && node.isVisibleToUser) return node
+            val isExcluded = exclude != null && node == exclude
+            if (!isExcluded && node.isEditable && node.isVisibleToUser) return node
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
         }
         return null
+    }
+
+    /**
+     * 联系人搜索结果：文本等于/包含联系人，排除搜索框，优先可点或父节点可点。
+     */
+    private fun findResult(contact: String, exclude: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        val root = A11yBridge.service()?.rootInActiveWindow ?: return null
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+        var fallback: AccessibilityNodeInfo? = null
+
+        while (queue.isNotEmpty() && visited < 900) {
+            val node = queue.removeFirst()
+            visited++
+            val excluded = exclude != null && node == exclude
+            if (!excluded && !node.isEditable) {
+                val text = node.text?.toString()?.trim().orEmpty()
+                val desc = node.contentDescription?.toString()?.trim().orEmpty()
+                val matched = text == contact || desc == contact ||
+                    text.contains(contact) || desc.contains(contact)
+                if (matched && node.isVisibleToUser) {
+                    if (node.isClickable) return node
+                    var parent = node.parent
+                    var depth = 0
+                    while (parent != null && depth < 4) {
+                        if (parent.isClickable) return parent
+                        parent = parent.parent
+                        depth++
+                    }
+                    if (fallback == null) fallback = node
+                }
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+        }
+        return fallback
     }
 }

@@ -371,6 +371,12 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 SwitchRow("自动降级", "云端失败后再试一次本地规则", settings.cloudAutoFallback, cloudEnabled) { v ->
                     vm.update { it.copy(cloudAutoFallback = v) }
                 }
+                SwitchRow(
+                    "聊天与查询",
+                    "匹配不到指令时，让大模型直接回答（只播报，不执行动作）",
+                    settings.chatFallbackEnabled,
+                    cloudEnabled
+                ) { v -> vm.update { it.copy(chatFallbackEnabled = v) } }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(

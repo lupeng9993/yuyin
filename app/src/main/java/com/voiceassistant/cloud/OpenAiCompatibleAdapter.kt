@@ -22,7 +22,11 @@ class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : C
         const val STRICT_MAX_TOKENS = 768
     }
 
-    override suspend fun complete(text: String, settings: AppSettings): CloudCall {
+    override suspend fun complete(
+        text: String,
+        settings: AppSettings,
+        systemPrompt: String
+    ): CloudCall {
         if (!settings.hasCloudKey) {
             return CloudCall(error = CloudError(CloudErrorKind.NO_CONFIG, "未填写 API Key"))
         }
@@ -40,7 +44,7 @@ class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : C
         // 第一次：正常请求
         var call = HttpEngine.postJson(
             endpoint, settings.cloudApiKey,
-            buildBody(model, text, settings.cloudForceJson, strict = false, maxTokens = FIRST_MAX_TOKENS),
+            buildBody(model, text, settings.cloudForceJson, strict = false, maxTokens = FIRST_MAX_TOKENS, systemPrompt = systemPrompt),
             settings.cloudTimeoutSec
         )
 
@@ -50,7 +54,7 @@ class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : C
         ) {
             call = HttpEngine.postJson(
                 endpoint, settings.cloudApiKey,
-                buildBody(model, text, forceJson = false, strict = false, maxTokens = FIRST_MAX_TOKENS),
+                buildBody(model, text, forceJson = false, strict = false, maxTokens = FIRST_MAX_TOKENS, systemPrompt = systemPrompt),
                 settings.cloudTimeoutSec
             )
         }
@@ -58,13 +62,17 @@ class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : C
         if (!call.ok) return call
 
         val first = extractContent(call.rawBody)
+        // 聊天模式不要求 JSON，直接返回正文
+        if (systemPrompt != SystemPrompt.TEXT) {
+            return CloudCall(content = first, httpCode = call.httpCode, rawBody = call.rawBody)
+        }
         if (hasJsonPayload(first)) return CloudCall(content = first, httpCode = call.httpCode, rawBody = call.rawBody)
 
         // 第二次：明确要求「只输出 JSON」，并给足长度
         DebugLog.w(TAG, "返回里没有 JSON（${first.length} 字符），用严格模式重试一次")
         val strictCall = HttpEngine.postJson(
             endpoint, settings.cloudApiKey,
-            buildBody(model, text, settings.cloudForceJson, strict = true, maxTokens = STRICT_MAX_TOKENS),
+            buildBody(model, text, settings.cloudForceJson, strict = true, maxTokens = STRICT_MAX_TOKENS, systemPrompt = systemPrompt),
             settings.cloudTimeoutSec
         )
         if (strictCall.ok) {
@@ -104,13 +112,14 @@ class OpenAiCompatibleAdapter(override val id: String = "openai_compatible") : C
         userText: String,
         forceJson: Boolean,
         strict: Boolean,
-        maxTokens: Int
+        maxTokens: Int,
+        systemPrompt: String
     ): String {
         val sb = StringBuilder()
         sb.append('{')
         sb.append("\"model\":").append(jsonString(model)).append(',')
         sb.append("\"messages\":[")
-        sb.append("{\"role\":\"system\",\"content\":").append(jsonString(SystemPrompt.TEXT)).append("},")
+        sb.append("{\"role\":\"system\",\"content\":").append(jsonString(systemPrompt)).append("},")
         sb.append("{\"role\":\"user\",\"content\":").append(jsonString(userText)).append("}")
         if (strict) {
             sb.append(",{\"role\":\"user\",\"content\":")
