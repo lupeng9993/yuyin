@@ -105,6 +105,15 @@ object ReminderNotifier {
                 ).apply {
                     description = "提醒到点时弹出并响铃"
                     enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 600)
+                    setSound(
+                        android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM),
+                        android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    enableLights(true)
                 }
             )
         }
@@ -147,6 +156,15 @@ object ReminderNotifier {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        // 全屏提醒页：系统会在锁屏/后台直接把页面拉起来
+        val fullScreen = PendingIntent.getActivity(
+            context, 1,
+            Intent(context, ReminderAlertActivity::class.java)
+                .putExtra("text", text)
+                .putExtra("label", label)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
         val n = NotificationCompat.Builder(context, CH_ALARM)
             .setSmallIcon(R.drawable.ic_notify)
             .setContentTitle("提醒：$text")
@@ -154,8 +172,9 @@ object ReminderNotifier {
             .setContentIntent(open)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setFullScreenIntent(fullScreen, true)
             .build()
         try {
             nm.notify(BASE_ALARM_ID + (System.currentTimeMillis() % 1000).toInt(), n)
@@ -186,7 +205,13 @@ object ReminderScheduler {
         val exact = canScheduleExact(context)
         try {
             if (exact) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminder.triggerAt, pi)
+                // setAlarmClock 是最高优先级：Doze / 省电模式都照常准点触发
+                val show = PendingIntent.getActivity(
+                    context, 0,
+                    Intent(context, com.voiceassistant.ui.MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                am.setAlarmClock(AlarmManager.AlarmClockInfo(reminder.triggerAt, show), pi)
             } else {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminder.triggerAt, pi)
             }

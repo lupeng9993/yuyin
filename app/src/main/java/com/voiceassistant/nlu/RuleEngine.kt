@@ -24,6 +24,13 @@ object RuleEngine {
         RegexOption.IGNORE_CASE
     )
 
+    /** 「微信给X发消息说…」这种把"微信"放前面的说法 */
+    private val wechatAlt = Regex(
+        "^(?:微信|wechat)\\s*(?:给|向)\\s*(.+?)\\s*(?:发|发送)?\\s*(?:消息|信息|微信)?\\s*" +
+            "(?:说|内容是|告诉他|告诉她)?\\s*[，,：:]?\\s*(.*)$",
+        RegexOption.IGNORE_CASE
+    )
+
     /** 导航到某某 / 带我去某某 / 去某某 */
     private val navigate = Regex(
         "^(?:帮我|请|麻烦)?\\s*(?:导航(?:到|去)?|带我去|领我去|我要去|我想去|去)\\s*(.+?)" +
@@ -83,7 +90,7 @@ object RuleEngine {
         matchWechat(clause) ?: matchNavigate(clause) ?: matchSystem(clause)
 
     private fun matchWechat(clause: String): VaAction? {
-        val m = wechat.find(clause) ?: return null
+        val m = wechat.find(clause) ?: wechatAlt.find(clause) ?: return null
         val contact = m.groupValues[1].trim()
         val message = m.groupValues[2].trim().trimEnd('。', '！', '!', '.')
         return when {
@@ -135,13 +142,17 @@ object RuleEngine {
      * 子句切分：先按标点切，再按连接词切。
      * 「然后」「接着」「再」这类连接词切开后要去掉，避免污染指令。
      */
-    /** 没有动词、但本地确实能处理的说法（时间/日期/天气/提醒/手电筒） */
+    /** 没有动词、但本地确实能处理的说法（时间/日期/天气/提醒/手电筒/快捷卡片） */
     private fun isMiscCommand(t: String): Boolean {
         if (t.contains("天气")) return true
         if (t.contains("几点") || t.contains("什么时间")) return true
         if (t.contains("几号") || t.contains("星期几") || t.contains("周几") || t.contains("礼拜几")) return true
         if (t.contains("手电筒")) return true
         if (t.contains("提醒")) return true
+        // 触发卡片：音乐 / 电影 / 倒车
+        if (t in setOf("音乐", "放音乐", "听音乐", "听歌", "来点音乐", "来首歌")) return true
+        if (t in setOf("电影", "看电影", "看个电影", "来点电影")) return true
+        if (t in setOf("倒车", "倒车影像", "倒车模式", "倒车画面")) return true
         return false
     }
 

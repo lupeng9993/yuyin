@@ -107,6 +107,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- 提醒到点：全屏提示页 -->
+        <activity
+            android:name=".reminder.ReminderAlertActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:taskAffinity="com.voiceassistant.remind"
+            android:theme="@style/Theme.VoiceAssistant"
+            android:turnScreenOn="true" />
+
         <!-- 提醒到点：弹通知 + 语音播报 -->
         <receiver
             android:name=".reminder.ReminderReceiver"

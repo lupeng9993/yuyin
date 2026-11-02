@@ -36,6 +36,24 @@ object TimeParser {
     }
 
     fun parse(text: String, now: Long = System.currentTimeMillis()): Result? {
+        // ---- 相对时间：10分钟后 / 半小时后 / 一个半小时后 / 2小时后 ----
+        when {
+            Regex("半个?小时(?:之)?后").containsMatchIn(text) -> return absolute(now + 30 * 60_000L)
+            Regex("一\\s*个\\s*半\\s*小时(?:之)?后").containsMatchIn(text) ->
+                return absolute(now + 90 * 60_000L)
+        }
+        Regex("(\\d{1,3}|[零〇一二两三四五六七八九十]{1,3})\\s*(?:个)?\\s*(分钟|小时|钟头|刻钟)\\s*(?:之)?后")
+            .find(text)?.let { m ->
+                val n = m.groupValues[1].toIntOrNull() ?: chineseToInt(m.groupValues[1]) ?: return null
+                val delta = when (m.groupValues[2]) {
+                    "分钟" -> n * 60_000L
+                    "小时", "钟头" -> n * 3_600_000L
+                    "刻钟" -> n * 900_000L
+                    else -> 0L
+                }
+                if (delta > 0) return absolute(now + delta)
+            }
+
         var hour: Int? = null
         var minute = 0
 
@@ -113,8 +131,19 @@ object TimeParser {
         return Result(target, "$dayLabel $hm")
     }
 
-    private fun isTomorrow(today: Calendar, target: Calendar): Boolean {
-        val c = Calendar.getInstance().apply {
+    /** 相对时间用的统一出口：把时间戳变成「M月d日 HH:mm」 */
+    private fun absolute(at: Long): Result {
+        val cal = Calendar.getInstance().apply { timeInMillis = at }
+        val label = "%d月%d日 %02d:%02d".format(
+            cal.get(Calendar.MONTH) + 1,
+            cal.get(Calendar.DAY_OF_MONTH),
+            cal.get(Calendar.HOUR_OF_DAY),
+            cal.get(Calendar.MINUTE)
+        )
+        return Result(at, label)
+    }
+
+    private fun isTomorrow(today: Calendar, target: Calendar): Boolean {        val c = Calendar.getInstance().apply {
             timeInMillis = today.timeInMillis
             add(Calendar.DAY_OF_YEAR, 1)
         }

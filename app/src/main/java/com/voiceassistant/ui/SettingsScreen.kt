@@ -592,6 +592,41 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 }) { Text("允许精确提醒（Android 12+）") }
                 Hint("不打开的话，语音提醒可能晚几分钟。")
 
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = {
+                        val r = com.voiceassistant.reminder.Reminder(
+                            id = com.voiceassistant.reminder.ReminderStore.nextId(context),
+                            triggerAt = System.currentTimeMillis() + 10_000,
+                            text = "测试提醒",
+                            label = "10 秒后"
+                        )
+                        val exact = com.voiceassistant.reminder.ReminderScheduler.add(context, r)
+                        infoMessage = if (exact) {
+                            "已设置 10 秒后的测试提醒（精确闹钟）"
+                        } else {
+                            "已设置，但没有精确闹钟权限，可能晚几分钟"
+                        }
+                    }) { Text("测试提醒（10 秒后）") }
+
+                    OutlinedButton(onClick = {
+                        val am = context.getSystemService(android.content.Context.AUDIO_SERVICE)
+                            as android.media.AudioManager
+                        val before = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                        val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                        repeat(2) {
+                            am.adjustStreamVolume(
+                                android.media.AudioManager.STREAM_MUSIC,
+                                android.media.AudioManager.ADJUST_LOWER,
+                                android.media.AudioManager.FLAG_SHOW_UI
+                            )
+                        }
+                        val after = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                        infoMessage = "媒体音量：$before → $after（最大 $max）\n" +
+                            if (before == after) "数字没变：可能是系统限制了本应用改音量"
+                            else "数字变了：如果耳朵听不出来，说明是车机功放独立控制"
+                    }) { Text("音量诊断") }
+                }
+
                 OutlinedButton(onClick = {
                     runCatching {
                         context.startActivity(

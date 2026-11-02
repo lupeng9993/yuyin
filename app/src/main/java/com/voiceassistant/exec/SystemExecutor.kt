@@ -102,13 +102,7 @@ class SystemExecutor(
                 DebugLog.d(TAG, "STREAM_MUSIC $before → 静音")
                 ActionResult(action, true, "已静音", "mute STREAM_MUSIC")
             }
-            is Command.VolumeSet -> {
-                val am = audio()
-                val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                val target = (max * command.percent / 100f).toInt().coerceIn(0, max)
-                am.setStreamVolume(AudioManager.STREAM_MUSIC, target, AudioManager.FLAG_SHOW_UI)
-                ActionResult(action, true, "音量已调到${command.percent}%", "level=$target/$max")
-            }
+            is Command.VolumeSet -> setVolumePercent(action, command.percent, "音量已调到${command.percent}%")
             is Command.Screenshot -> takeScreenshot(action)
             is Command.OpenApp -> openApp(action, command.query)
             is Command.CloseApp -> closeApp(action, command.query)
@@ -228,13 +222,14 @@ class SystemExecutor(
                 return ActionResult(action, true, "已强制停止$label", "force-stop via settings pkg=$pkg")
             }
 
-            // 都失败就老实说
-            val hint = if (A11yBridge.isReady()) "" else "（开启无障碍可以走设置页强制停止）"
-            ActionResult(
-                action, false,
-                "没能关闭$label，系统不允许关闭正在使用的应用$hint",
-                "kill 与 force-stop 均失败，pkg=$pkg"
-            )
+            // 实在关不掉：至少退回桌面，别把用户卡在别人的应用里
+            val wentHome = A11yBridge.isReady() && A11yBridge.home()
+            val speech = if (wentHome) {
+                "关不掉$label，已经帮你回到桌面"
+            } else {
+                "没能关闭$label，系统不允许关闭正在使用的应用"
+            }
+            ActionResult(action, false, speech, "kill 与 force-stop 均失败，home=$wentHome pkg=$pkg")
         } catch (e: Exception) {
             DebugLog.e(TAG, "关闭应用失败", e)
             ActionResult(action, false, "关闭「$query」失败", e.message.orEmpty())
@@ -255,9 +250,12 @@ class SystemExecutor(
     private fun setVolumePercent(action: VaAction, percent: Int, speech: String): ActionResult {
         val am = audio()
         val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val before = am.getStreamVolume(AudioManager.STREAM_MUSIC)
         val target = (max * percent / 100f).toInt().coerceIn(0, max)
         am.setStreamVolume(AudioManager.STREAM_MUSIC, target, AudioManager.FLAG_SHOW_UI)
-        return ActionResult(action, true, speech, "level=$target/$max")
+        val after = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        DebugLog.d(TAG, "STREAM_MUSIC $before → $after (目标 $target / max=$max)")
+        return ActionResult(action, true, speech, "level $before→$after/$max")
     }
 
     /** 手电筒：找有闪光灯的摄像头，用 CameraManager 直接开关 */
@@ -694,15 +692,15 @@ class SystemExecutor(
             ) return Command.VolumeDown
         }
 
-        // 触发卡片：音乐 / 电影 / 倒车（要在"关闭/退出"之前，避免被当成关应用）
+        // 触发卡片：音乐 / 电影 / 倒车 + 各种说法
         when (t) {
-            "音乐", "放音乐", "听音乐", "来点音乐" -> return Command.Trigger("音乐")
-            "电影", "看电影", "看个电影", "来点电影" -> return Command.Trigger("电影")
-            "倒车", "倒车影像", "倒车模式", "倒车画面" -> return Command.Trigger("倒车")
+            "音乐", "放音乐", "听音乐", "来点音乐", "听歌", "来首歌", "打开音乐" -> return Command.Trigger("音乐")
+            "电影", "看电影", "看个电影", "来点电影", "打开电影" -> return Command.Trigger("电影")
+            "倒车", "倒车影像", "倒车模式", "倒车画面", "打开倒车" -> return Command.Trigger("倒车")
         }
 
-        // 退出导航（必须在"关闭/退出XXX"之前判断，否则会被当成关应用）
-        if (Regex("^(?:退出|结束|停止|关闭)(?:当前|正在|这个)?导航$").matches(t)) {
+        // 退出导航：只认"退出/结束/停止"；「关闭导航」走下面的关闭应用（真关高德）
+        if (Regex("^(?:退出|结束|停止)(?:当前|正在|这个)?导航$").matches(t)) {
             return Command.ExitNavigation
         }
 

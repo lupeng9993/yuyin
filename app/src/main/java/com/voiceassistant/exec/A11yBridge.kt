@@ -137,23 +137,49 @@ object A11yBridge {
         }
     }
 
-    /** 输入文本：先试 ACTION_SET_TEXT，失败再用剪贴板粘贴 */
+    /**
+     * 输入文本。
+     *
+     * 踩过的坑：微信的输入框对 ACTION_SET_TEXT 返回 true，**但内容根本没写进去**
+     * （只有真实输入法事件才会触发它的 TextWatcher）。所以每一步都必须回读校验，
+     * 失败就换「剪贴板 + ACTION_PASTE」。
+     */
     fun setText(node: AccessibilityNodeInfo, text: String): Boolean {
         node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+
         val args = android.os.Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }
-        if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return true
+        node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        if (verifyText(node, text)) return true
+        DebugLog.w(TAG, "SET_TEXT 没生效，改用剪贴板粘贴")
 
-        return try {
+        // 粘贴兜底
+        val pasted = try {
             val svc = service() ?: return false
             val cm = svc.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             cm.setPrimaryClip(android.content.ClipData.newPlainText("va", text))
+            node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            verifyText(node, text)
         } catch (e: Exception) {
-            DebugLog.e(TAG, "输入文本失败", e)
+            DebugLog.e(TAG, "粘贴文本失败", e)
             false
         }
+        if (!pasted) DebugLog.w(TAG, "粘贴也没生效（输入框仍是空的）")
+        return pasted
+    }
+
+    /** 回读输入框内容确认真的写进去了（有些输入法/界面有延迟，重试几次） */
+    private fun verifyText(node: AccessibilityNodeInfo, expected: String): Boolean {
+        val target = expected.trim()
+        if (target.isEmpty()) return true
+        repeat(8) {
+            val current = node.text?.toString().orEmpty()
+            if (current.contains(target)) return true
+            android.os.SystemClock.sleep(60)
+        }
+        return false
     }
 
     fun back(): Boolean = service()?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) ?: false
