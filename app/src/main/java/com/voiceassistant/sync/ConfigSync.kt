@@ -98,9 +98,9 @@ object ConfigSync {
         o.put("time", System.currentTimeMillis())
 
         // 唤醒
-        o.put("wakePhrase", s.wakePhrase)
+        o.put("wakeKeyword", s.wakeKeyword)
         o.put("threshold", s.wakeThreshold)
-        o.put("kwsModelDir", s.kwsModelDir)
+        o.put("wakeModelDir", s.wakeModelDir)
         o.put("asrModelDir", s.asrModelDir)
         o.put("vadModelPath", s.vadModelPath)
         o.put("vadSilenceMs", s.vadSilenceMs)
@@ -138,7 +138,7 @@ object ConfigSync {
         o.put("triggerReverse", s.triggerReverse)
 
         // 行为
-        o.put("greetingEnabled", s.greetingEnabled)
+        o.put("wakeAckEnabled", s.wakeAckEnabled)
         o.put("bootAutoStart", s.bootAutoStart)
         o.put("floatBallEnabled", s.floatBallEnabled)
         o.put("floatBallAlpha", s.floatBallAlpha)
@@ -159,9 +159,9 @@ object ConfigSync {
     private fun applyJson(text: String, current: AppSettings): AppSettings? = try {
         val o = JSONObject(text)
         var s = current.copy(
-            wakePhrase = o.optString("wakePhrase", current.wakePhrase),
+            wakeKeyword = o.optString("wakeKeyword", current.wakeKeyword),
             wakeThreshold = o.optDouble("threshold", current.wakeThreshold.toDouble()).toFloat(),
-            kwsModelDir = o.optString("kwsModelDir", current.kwsModelDir),
+            wakeModelDir = o.optString("wakeModelDir", current.wakeModelDir),
             asrModelDir = o.optString("asrModelDir", current.asrModelDir),
             vadModelPath = o.optString("vadModelPath", current.vadModelPath),
             vadSilenceMs = o.optInt("vadSilenceMs", current.vadSilenceMs),
@@ -191,7 +191,7 @@ object ConfigSync {
             triggerMusic = o.optString("triggerMusic", current.triggerMusic),
             triggerMovie = o.optString("triggerMovie", current.triggerMovie),
             triggerReverse = o.optString("triggerReverse", current.triggerReverse),
-            greetingEnabled = o.optBoolean("greetingEnabled", current.greetingEnabled),
+            wakeAckEnabled = o.optBoolean("wakeAckEnabled", current.wakeAckEnabled),
             bootAutoStart = o.optBoolean("bootAutoStart", current.bootAutoStart),
             floatBallEnabled = o.optBoolean("floatBallEnabled", current.floatBallEnabled),
             floatBallAlpha = o.optDouble("floatBallAlpha", current.floatBallAlpha.toDouble()).toFloat(),
