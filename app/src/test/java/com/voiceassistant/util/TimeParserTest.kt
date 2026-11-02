@@ -23,10 +23,11 @@ class TimeParserTest {
 
     @Test
     fun `阿拉伯数字加点半`() {
-        // 现在 10:00，说「7点半」→ 已过点，顺延到明天 07:30
+        // 现在 10:00，说「7点半」→ 12 小时制里 19:30 更近
+        // （差 9.5 小时，明天 07:30 要差 21.5 小时）
         val r = TimeParser.parse("7点半提醒我交电费", now)
         assertNotNull(r)
-        assertEquals(at(2026, 11, 3, 7, 30), r!!.at)
+        assertEquals(at(2026, 11, 2, 19, 30), r!!.at)
     }
 
     @Test
@@ -67,11 +68,25 @@ class TimeParserTest {
     }
 
     @Test
-    fun `已经过去的时间顺延到明天`() {
-        // 现在是 10:00，说「8点」→ 明天 08:00
+    fun `没说上午下午时取最近的时间点`() {
+        // 现在 10:00，说「8点」→ 今天 20:00 比明天 08:00 更近
         val r = TimeParser.parse("8点提醒我开会", now)
         assertNotNull(r)
-        assertEquals(at(2026, 11, 3, 8, 0), r!!.at)
+        assertEquals(at(2026, 11, 2, 20, 0), r!!.at)
+    }
+
+    @Test
+    fun `下午说四点二十六应落在今天`() {
+        // 用户报的问题：16:24 说「4点26」被排到了明天 04:26
+        val afternoon = at(2026, 11, 2, 16, 24)
+
+        val r = TimeParser.parse("4点26提醒我吃饭", afternoon)
+        assertNotNull(r)
+        assertEquals(at(2026, 11, 2, 16, 26), r!!.at)
+
+        val r2 = TimeParser.parse("今天4点26提醒我吃饭", afternoon)
+        assertNotNull(r2)
+        assertEquals(at(2026, 11, 2, 16, 26), r2!!.at)
     }
 
     @Test
