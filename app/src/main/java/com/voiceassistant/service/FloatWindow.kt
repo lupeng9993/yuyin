@@ -29,13 +29,13 @@ import kotlin.math.abs
  *
  * - 半透明，透明度可在设置里调
  * - 正在听指令时边缘有淡五彩流光（极光效果），听完自动停
- * - 拖动移位置，单击暂停/继续，长按打开应用
+ * - 拖动移位置；**单击 = 回桌面**；**双击 = 暂停/继续 + 打开语音助手**
  */
 class FloatWindow(
     private val context: Context,
     private var alpha: Float,
-    private val onTogglePause: () -> Unit,
-    private val onOpenApp: () -> Unit
+    private val onSingleTap: () -> Unit,
+    private val onDoubleTap: () -> Unit
 ) {
 
     companion object {
@@ -51,6 +51,10 @@ class FloatWindow(
     private var dot: View? = null
     private var aurora: AuroraRingView? = null
     private var visible = false
+
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var lastTapAt = 0L
+    private val singleTapRunnable = Runnable { onSingleTap() }
 
     /** 最近一次显示失败的原因，供界面提示 */
     var lastError: String? = null
@@ -170,10 +174,19 @@ class FloatWindow(
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (!dragging) {
-                        if (event.eventTime - event.downTime > 600) onOpenApp() else onTogglePause()
-                    } else {
+                    if (dragging) {
                         snapToEdge(wm, container, lp)
+                    } else {
+                        // 单击回桌面，双击暂停+打开助手：靠 320ms 窗口区分
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (now - lastTapAt < 320) {
+                            lastTapAt = 0
+                            handler.removeCallbacks(singleTapRunnable)
+                            onDoubleTap()
+                        } else {
+                            lastTapAt = now
+                            handler.postDelayed(singleTapRunnable, 320)
+                        }
                     }
                     true
                 }
@@ -239,6 +252,7 @@ class FloatWindow(
     fun hide() {
         runOnMain {
             if (!visible) return@runOnMain
+            handler.removeCallbacks(singleTapRunnable)
             aurora?.active = false
             try {
                 rootView?.let { windowManager?.removeView(it) }

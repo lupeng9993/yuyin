@@ -79,6 +79,19 @@ object MediaBridge {
     } catch (e: Exception) {
         false
     }
+
+    /** 让播放器自己调音量（有些车机系统流被硬件固定，但播放器内部音量还能调） */
+    fun adjustVolume(up: Boolean): Boolean = try {
+        val c = controller ?: return false
+        c.adjustVolume(
+            if (up) android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER,
+            android.media.AudioManager.FLAG_SHOW_UI
+        )
+        true
+    } catch (e: Exception) {
+        DebugLog.w(TAG, "调节播放器音量失败: ${e.message}")
+        false
+    }
 }
 
 /**

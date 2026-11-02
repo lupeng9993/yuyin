@@ -743,8 +743,13 @@ class WakeService : Service() {
             val window = FloatWindow(
                 context = this,
                 alpha = settings.floatBallAlpha,
-                onTogglePause = { togglePause() },
-                onOpenApp = {
+                onSingleTap = {
+                    // 单击：回桌面
+                    com.voiceassistant.exec.A11yBridge.home()
+                },
+                onDoubleTap = {
+                    // 双击：暂停/继续 + 打开语音助手
+                    togglePause()
                     startActivity(
                         Intent(this, com.voiceassistant.ui.MainActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

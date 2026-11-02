@@ -121,6 +121,28 @@ class SystemExecutor(
     private fun audio(): AudioManager =
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
+    /** 系统流调不动时的兜底：先模拟音量键，再让播放器自己调 */
+    private fun fallbackVolume(up: Boolean, before: Int): String {
+        val am = audio()
+        val key = if (up) KeyEvent.KEYCODE_VOLUME_UP else KeyEvent.KEYCODE_VOLUME_DOWN
+        repeat(2) {
+            try {
+                am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key))
+                am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, key))
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+        android.os.SystemClock.sleep(120)
+        if (am.getStreamVolume(AudioManager.STREAM_MUSIC) != before) {
+            return "音量键生效 → ${am.getStreamVolume(AudioManager.STREAM_MUSIC)}"
+        }
+        if (com.voiceassistant.media.MediaBridge.adjustVolume(up)) {
+            return "已让播放器自己调音量"
+        }
+        return "系统与播放器都不让调（本机可能由硬件控制音量）"
+    }
+
     private fun setVolumeAdjust(direction: Int, action: VaAction, speech: String): ActionResult {
         val am = audio()
         val before = am.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -129,9 +151,17 @@ class SystemExecutor(
         // 之前用「建议流」会按当前活跃音频选流，我们自己在播报时就会调到 assistant 流，
         // 表现就是"只在语音助手内有用，别的 App 没反应"。
         am.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
-        val after = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-        DebugLog.d(TAG, "STREAM_MUSIC $before → $after (max=$max)")
-        return ActionResult(action, true, speech, "level $before→$after/$max")
+        var after = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        var detail = "STREAM_MUSIC $before → $after / $max (volumeFixed=${am.isVolumeFixed})"
+
+        if (after == before) {
+            // 系统不许改 → 试音量键，再试播放器
+            detail += "｜" + fallbackVolume(direction == AudioManager.ADJUST_RAISE, before)
+            after = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        }
+
+        DebugLog.d(TAG, detail)
+        return ActionResult(action, true, speech, detail)
     }
 
     private fun mediaKey(action: VaAction, keyCode: Int, speech: String): ActionResult {
@@ -416,8 +446,8 @@ class SystemExecutor(
         }
     }
 
-    /** 音乐 / 电影 / 倒车：启动设置里绑定的 App */
-    private fun trigger(action: VaAction, slot: String): ActionResult {
+    /** 音乐 / 电影 / 倒车：启动设置里绑定的 App；音乐还会自动开始播放 */
+    private suspend fun trigger(action: VaAction, slot: String): ActionResult {
         val pkg = when (slot) {
             "音乐" -> settings.triggerMusic
             "电影" -> settings.triggerMovie
@@ -437,6 +467,21 @@ class SystemExecutor(
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
             val label = AppLauncher.labelOf(context, pkg) ?: slot
+            if (slot == "音乐") {
+                // 等播放器起来，再主动发一次「播放」
+                delay(1600)
+                var played = com.voiceassistant.media.MediaBridge.play()
+                if (!played) {
+                    try {
+                        audio().dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+                        audio().dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+                        played = true
+                    } catch (e: Exception) {
+                        DebugLog.w(TAG, "自动播放失败: ${e.message}")
+                    }
+                }
+                DebugLog.d(TAG, "已尝试开始播放 played=$played")
+            }
             ActionResult(action, true, "已打开$label", "pkg=$pkg")
         } catch (e: Exception) {
             DebugLog.e(TAG, "启动 $slot 失败", e)
@@ -641,13 +686,14 @@ class SystemExecutor(
         }
 
         // 提醒（必须在「打开应用」之前，避免「提醒我打开空调」被当成打开应用）
-        if (t.contains("提醒")) {
+        if (t.contains("提醒") || t.contains("叫我")) {
             if (t.contains("取消")) return Command.CancelReminders
             if (t.contains("几个") || t.contains("多少") || t.contains("还有")) return Command.ListReminders
             val parsed = TimeParser.parse(t)
             if (parsed != null) {
                 val event = t.substringAfter("提醒我", "")
                     .ifBlank { t.substringAfter("提醒", "") }
+                    .ifBlank { t.substringAfter("叫我", "") }
                     .trim()
                     .trimEnd('。', '，', '！', '!')
                     .ifBlank { "提醒" }

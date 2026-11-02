@@ -154,20 +154,58 @@ object A11yBridge {
         if (verifyText(node, text)) return true
         DebugLog.w(TAG, "SET_TEXT 没生效，改用剪贴板粘贴")
 
-        // 粘贴兜底
-        val pasted = try {
+        if (pasteDirect(node, text) && verifyText(node, text)) return true
+        DebugLog.w(TAG, "ACTION_PASTE 没生效，改用长按菜单粘贴")
+
+        if (pasteViaMenu(node, text) && verifyText(node, text)) return true
+
+        DebugLog.w(TAG, "三种输入方式都没写进去")
+        return false
+    }
+
+    /** 直接 ACTION_PASTE */
+    private fun pasteDirect(node: AccessibilityNodeInfo, text: String): Boolean {
+        return try {
             val svc = service() ?: return false
             val cm = svc.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             cm.setPrimaryClip(android.content.ClipData.newPlainText("va", text))
             node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-            verifyText(node, text)
         } catch (e: Exception) {
-            DebugLog.e(TAG, "粘贴文本失败", e)
+            DebugLog.e(TAG, "粘贴失败", e)
             false
         }
-        if (!pasted) DebugLog.w(TAG, "粘贴也没生效（输入框仍是空的）")
-        return pasted
+    }
+
+    /**
+     * 长按输入框 → 系统菜单里点「粘贴」。
+     * 微信这类自绘输入框只认真实输入法事件，ACTION_PASTE 会被忽略，
+     * 但菜单里的「粘贴」是普通可点节点，无障碍点得动。
+     */
+    private fun pasteViaMenu(node: AccessibilityNodeInfo, text: String): Boolean {
+        return try {
+            val svc = service() ?: return false
+            val cm = svc.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("va", text))
+
+            node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            node.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)
+            android.os.SystemClock.sleep(500)
+
+            val paste = findNode(TextFilter(exact = "粘贴"))
+                ?: findNode(TextFilter(contains = "粘贴"))
+                ?: findNode(TextFilter(exact = "Paste"))
+                ?: findNode(TextFilter(contains = "Paste"))
+            if (paste == null) {
+                DebugLog.w(TAG, "长按后没找到「粘贴」菜单")
+                return false
+            }
+            DebugLog.d(TAG, "点击菜单里的「粘贴」")
+            click(paste)
+        } catch (e: Exception) {
+            DebugLog.e(TAG, "菜单粘贴失败", e)
+            false
+        }
     }
 
     /** 回读输入框内容确认真的写进去了（有些输入法/界面有延迟，重试几次） */

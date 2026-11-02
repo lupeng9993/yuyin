@@ -42,10 +42,11 @@ object TimeParser {
             Regex("一\\s*个\\s*半\\s*小时(?:之)?后").containsMatchIn(text) ->
                 return absolute(now + 90 * 60_000L)
         }
-        Regex("(\\d{1,3}|[零〇一二两三四五六七八九十]{1,3})\\s*(?:个)?\\s*(分钟|小时|钟头|刻钟)\\s*(?:之)?后")
+        Regex("(\\d{1,3}|[零〇一二两三四五六七八九十]{1,3})\\s*(?:个)?\\s*(秒钟?|分钟|小时|钟头|刻钟)\\s*(?:之)?后")
             .find(text)?.let { m ->
                 val n = m.groupValues[1].toIntOrNull() ?: chineseToInt(m.groupValues[1]) ?: return null
                 val delta = when (m.groupValues[2]) {
+                    "秒", "秒钟" -> n * 1_000L
                     "分钟" -> n * 60_000L
                     "小时", "钟头" -> n * 3_600_000L
                     "刻钟" -> n * 900_000L
@@ -86,8 +87,9 @@ object TimeParser {
 
         // 下午/晚上/傍晚 +12（中午12点不转）
         val pm = text.contains("下午") || text.contains("晚上") || text.contains("傍晚") || text.contains("夜里")
+        val am = text.contains("早上") || text.contains("上午") || text.contains("凌晨")
         if (pm && h < 12) h += 12
-        if ((text.contains("早上") || text.contains("上午") || text.contains("凌晨")) && h == 12) h = 0
+        if (am && h == 12) h = 0
         if (h > 23) return null
 
         // 日期偏移
@@ -97,22 +99,36 @@ object TimeParser {
             text.contains("明天") || text.contains("明早") || text.contains("明晚") -> 1
             else -> 0
         }
+        val dayWordPresent = text.contains("今天") || text.contains("明天") || text.contains("明早") ||
+            text.contains("明晚") || text.contains("后天") || text.contains("大后天")
 
-        val cal = Calendar.getInstance().apply {
-            timeInMillis = now
-            add(Calendar.DAY_OF_YEAR, dayOffset)
-            set(Calendar.HOUR_OF_DAY, h)
-            set(Calendar.MINUTE, minute)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
+        /*
+         * 就近原则 + 12 小时制优先：
+         * - 用户说了上午/下午 → 就按他说的算
+         * - 没说 → 4点 既可能是 04:00 也可能是 16:00，谁离现在近取谁
+         * - 没说今天/明天 → 昨今两天都参与比较
+         * 这样 16:24 说「4点26」得到今天 16:26，而不是明天 04:26。
+         */
+        val hoursToTry = if (!pm && !am && h in 1..12) listOf(h, h + 12) else listOf(h)
+        val daysToTry = if (dayWordPresent) listOf(dayOffset) else listOf(0, 1)
+
+        val candidates = ArrayList<Long>()
+        for (d in daysToTry) {
+            for (hh in hoursToTry) {
+                if (hh > 23) continue
+                val c = Calendar.getInstance().apply {
+                    timeInMillis = now
+                    add(Calendar.DAY_OF_YEAR, d)
+                    set(Calendar.HOUR_OF_DAY, hh)
+                    set(Calendar.MINUTE, minute)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                if (c.timeInMillis > now) candidates.add(c.timeInMillis)
+            }
         }
-
-        // 没说"明天"但时间已过 → 顺延到明天（例如下午问"8点提醒我"）
-        if (dayOffset == 0 && cal.timeInMillis <= now) {
-            cal.add(Calendar.DAY_OF_YEAR, 1)
-        }
-
-        val target = cal.timeInMillis
+        if (candidates.isEmpty()) return null
+        val target = candidates.min()
         val labelCal = Calendar.getInstance().apply { timeInMillis = target }
         val todayCal = Calendar.getInstance().apply { timeInMillis = now }
         val sameDay = labelCal.get(Calendar.YEAR) == todayCal.get(Calendar.YEAR) &&
