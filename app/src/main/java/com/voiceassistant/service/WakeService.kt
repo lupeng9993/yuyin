@@ -512,6 +512,12 @@ class WakeService : Service() {
         reportOutcome(outcome)
         if (outcome.speech.isNotBlank()) speakSafely(outcome.speech)
 
+        // 失败时自动上传日志（地址由用户自己填，不填就不传）
+        if (settings.autoUploadLog && settings.logUploadUrl.isNotBlank() && !outcome.allOk) {
+            val msg = com.voiceassistant.log.LogUploader.upload(applicationContext, settings.logUploadUrl)
+            DebugLog.d(TAG, "自动上传日志：$msg")
+        }
+
         // 用后即学：云端解析且全部执行成功，就把这句话记成模板，下次本地直接命中
         if (settings.autoLearn &&
             plan.source == ActionPlan.Source.CLOUD &&

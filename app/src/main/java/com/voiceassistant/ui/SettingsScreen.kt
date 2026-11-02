@@ -527,7 +527,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     onClick = { SystemSettings.open(context, SystemSettings.accessibilityIntent()) }
                 ) { Text(if (uiState.accessibilityReady) "无障碍已开启" else "去开启无障碍服务") }
 
-                FieldRow("发送键偏移（dp）", settings.sendOffsetDp, "8") { v ->
+                FieldRow("发送键偏移（dp，临时测试）", settings.sendOffsetDp, "8") { v ->
                     vm.update { it.copy(sendOffsetDp = v) }
                 }
                 Hint("发不出去或点偏了再调这个，一般 8～40；车机版输入框更宽，可能需要大一点。")
@@ -535,7 +535,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 OutlinedButton(onClick = {
                     com.voiceassistant.exec.A11yBridge.dumpTree()
                     infoMessage = "节点树已写入日志，导出日志发出来即可"
-                }) { Text("导出当前界面节点树") }
+                }) { Text("导出当前界面节点树（临时测试，后期删除）") }
                 Hint("先停在出问题的界面（例如微信聊天界面），再点这个按钮。")
 
                 Divider(Modifier.padding(vertical = 6.dp))
@@ -683,6 +683,11 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
 
                 Divider(Modifier.padding(vertical = 6.dp))
                 Text("关于", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "下面几项是临时测试功能（日志上传、模型服务端、节点树、发送键偏移），稳定后会删除。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 val pkgInfo = remember {
                     runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
                 }
@@ -707,6 +712,25 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                Divider(Modifier.padding(vertical = 6.dp))
+                Text("日志上传（临时测试，后期删除）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                FieldRow("上传地址", settings.logUploadUrl, "https://你的服务器/upload") { v ->
+                    vm.update { it.copy(logUploadUrl = v) }
+                }
+                SwitchRow(
+                    "自动上传日志",
+                    "执行失败时自动把日志包 POST 到这个地址",
+                    settings.autoUploadLog
+                ) { v -> vm.update { it.copy(autoUploadLog = v) } }
+                Hint("说一句「上传日志」也能手动上传。服务端收到的是 zip 日志包（application/zip）。")
+
+                Divider(Modifier.padding(vertical = 6.dp))
+                Text("模型服务端（临时测试，后期删除）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                FieldRow("模型下载地址", settings.modelServerUrl, "http://192.168.51.10:8099/models") { v ->
+                    vm.update { it.copy(modelServerUrl = v) }
+                }
+                Hint("填了就走局域网下载，不再连 GitHub；留空走官方地址。目录结构与 GitHub 一致（kws-models/、asr-models/、tts-models/）。")
 
                 SwitchRow("悬浮小球", "常驻监听入口，也是 Android 14 后台启动麦克风的豁免条件", settings.floatBallEnabled) { v ->
                     vm.update { it.copy(floatBallEnabled = v) }

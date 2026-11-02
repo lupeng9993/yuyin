@@ -109,8 +109,16 @@
             </intent-filter>
         </receiver>
 
-        <!-- 提醒到点：全屏提示页 -->
+        <!-- 调音量时短暂闪一下的透明界面：让系统认为应用在前台，才能改音量 -->
         <activity
+            android:name=".ui.VolumeBurstActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity="com.voiceassistant.volburst"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- 提醒到点：全屏提示页 -->        <activity
             android:name=".reminder.ReminderAlertActivity"
             android:excludeFromRecents="true"
             android:exported="false"

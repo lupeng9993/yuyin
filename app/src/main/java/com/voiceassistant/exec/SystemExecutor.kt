@@ -57,6 +57,8 @@ class SystemExecutor(
         data object Next : Command
         data object Previous : Command
         data object GoHome : Command
+        /** 上传日志到设置里填的地址 */
+        data object UploadLog : Command
         /** 取消静音并恢复音量 */
         data object Unmute : Command
         /** 把当前界面的无障碍节点树写进日志（适配不同车机/ROM 用） */
@@ -114,6 +116,10 @@ class SystemExecutor(
             is Command.ShopSearch -> shopSearch(action, command.app, command.keyword)
             is Command.PlayPause -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, "已切换播放状态")
             is Command.GoHome -> goHome(action)
+            is Command.UploadLog -> {
+                val msg = com.voiceassistant.log.LogUploader.upload(context, settings.logUploadUrl)
+                ActionResult(action, msg.startsWith("日志已上传"), msg, msg)
+            }
             is Command.Unmute -> {
                 val am = audio()
                 val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
@@ -156,6 +162,22 @@ class SystemExecutor(
         }
         if (com.voiceassistant.media.MediaBridge.adjustVolume(up)) {
             return "已让播放器自己调音量"
+        }
+        // 最后一级：弹出透明界面（系统只允许"前台应用"改音量）
+        val burst = runCatching {
+            context.startActivity(
+                Intent(context, com.voiceassistant.ui.VolumeBurstActivity::class.java)
+                    .putExtra("direction", if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            )
+            true
+        }.getOrDefault(false)
+        if (burst) {
+            android.os.SystemClock.sleep(600)
+            if (am.getStreamVolume(AudioManager.STREAM_MUSIC) != before) {
+                return "已通过前台界面调整 → ${am.getStreamVolume(AudioManager.STREAM_MUSIC)}"
+            }
+            return "已尝试前台调整，音量仍被系统锁住"
         }
         return "系统与播放器都不让调（本机可能由硬件控制音量）"
     }
@@ -764,6 +786,9 @@ class SystemExecutor(
         if (t in setOf("取消静音", "解除静音", "恢复音量", "打开声音", "恢复声音")) {
             return Command.Unmute
         }
+
+        // 上传日志（调试用）
+        if (t.contains("上传日志") || t == "传日志") return Command.UploadLog
 
         // 触发卡片：音乐 / 电影 / 倒车 + 各种说法
         when (t) {

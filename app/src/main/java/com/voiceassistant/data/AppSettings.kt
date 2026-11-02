@@ -105,11 +105,21 @@ data class AppSettings(
 
     // ---- 分组五：系统与调试 ----
     val debugMode: Boolean = false,
+    /** 日志自动上传地址（用户自己填，POST 日志包） */
+    val logUploadUrl: String = "",
+    /** 模型服务端地址；非空时下载模型不再走 GitHub */
+    val modelServerUrl: String = "",
+    val autoUploadLog: Boolean = false,
     val bootAutoStart: Boolean = false,
     val floatBallEnabled: Boolean = false,
     /** 悬浮球透明度 0.2–1.0 */
     val floatBallAlpha: Float = 0.85f
 ) {
+    init {
+        // 让下载器在任何时候都知道"模型服务端去哪儿找"，不用到处传 settings
+        com.voiceassistant.model.ModelCatalog.serverBase = modelServerUrl
+    }
+
     val hasCloudKey: Boolean get() = cloudApiKey.isNotBlank()
     val hasAmapKey: Boolean get() = amapKey.isNotBlank()
 

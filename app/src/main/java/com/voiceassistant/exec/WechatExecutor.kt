@@ -49,36 +49,56 @@ class WechatExecutor(
         if (!launchWechat()) return@withContext fail(action, "没有安装微信", "未找到 $WECHAT_PKG")
         waitForPackage(WECHAT_PKG)
 
-        // 1. 找搜索入口：停在聊天界面时先返回（最多退 3 次）
+        // 1. 找搜索入口。关键：**只在"不在列表页"时才按返回**
+        //    之前无脑连按 4 次返回，把微信整个退到桌面，后面点什么都点不到。
         var searchEntry: AccessibilityNodeInfo? = null
         for (attempt in 0..MAX_BACK) {
-            searchEntry = awaitNode("微信搜索入口", if (attempt == 0) 3000L else 2000L) {
-                A11yBridge.findNode(A11yBridge.TextFilter(contentDesc = "搜索"))
-                    ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "搜索"))
-            }
+            searchEntry = awaitNode("微信搜索入口", if (attempt == 0) 2500L else 1500L) { findSearchEntry() }
             if (searchEntry != null) {
                 if (attempt > 0) DebugLog.d(TAG, "返回 $attempt 次后找到搜索入口")
                 break
             }
-            DebugLog.d(TAG, "第 ${attempt + 1} 次没找到搜索入口，按返回")
+            if (isOnMainList()) {
+                DebugLog.d(TAG, "已在微信列表页，停止按返回，改用图标定位")
+                break
+            }
+            DebugLog.d(TAG, "不在列表页，按返回（第 ${attempt + 1} 次）")
             A11yBridge.back()
-            delay(900)
+            delay(800)
         }
+
+        // 2. 点进去并**校验真的进了搜索**（有可编辑节点才算成功）
+        var entered = false
         if (searchEntry != null) {
             A11yBridge.click(searchEntry)
-        } else {
-            // 车机版微信的搜索是个纯放大镜图标（没有"搜索"文字/描述），按布局位置点
-            DebugLog.w(TAG, "没找到搜索入口，改按车机版布局点放大镜")
-            if (!clickSearchIconByLayout()) {
-                A11yBridge.dumpTree("NodeDump")
-                return@withContext fail(
-                    action,
-                    "找不到微信搜索入口",
-                    "文字匹配和图标定位都没点中"
-                )
+            delay(900)
+            entered = hasEditable()
+            if (entered) DebugLog.d(TAG, "已进入微信搜索页")
+        }
+
+        if (!entered) {
+            // 车机版：搜索是纯放大镜图标，按布局点；点完校验，没中换个偏移再来
+            for (offset in listOf(0, -16, 16, -32)) {
+                DebugLog.w(TAG, "按布局点放大镜（偏移 $offset dp）")
+                if (clickSearchIconByLayout(offset)) {
+                    delay(1300)
+                    if (hasEditable()) {
+                        entered = true
+                        DebugLog.d(TAG, "放大镜点击成功（偏移 $offset dp）")
+                        break
+                    }
+                }
             }
         }
-        delay(900)
+
+        if (!entered) {
+            A11yBridge.dumpTree("NodeDump")
+            return@withContext fail(
+                action,
+                "没能进入微信搜索",
+                "点了搜索图标但没出现输入框（已导出节点树）"
+            )
+        }
 
         // 2. 输入联系人：所有可编辑节点挨个试，谁能写进去就用谁
         val searchInput = typeIntoAnyEditable(contact, exclude = null)
@@ -282,6 +302,25 @@ class WechatExecutor(
         return list
     }
 
+    /** 找搜索入口：先按描述/文字，再按类名（有些车机版描述是空的） */
+    private fun findSearchEntry(): AccessibilityNodeInfo? =
+        A11yBridge.findNode(A11yBridge.TextFilter(contentDesc = "搜索"))
+            ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "搜索"))
+            ?: A11yBridge.findNode(A11yBridge.TextFilter(exact = "Search"))
+
+    /**
+     * 是否停在微信「聊天列表页」。
+     * 依据：车机版底部有「通讯录 / 发现 / 我」三个 tab，且没有聊天输入框。
+     */
+    private fun isOnMainList(): Boolean {
+        val hasTab = A11yBridge.findNode(A11yBridge.TextFilter(exact = "通讯录")) != null ||
+            A11yBridge.findNode(A11yBridge.TextFilter(exact = "发现")) != null
+        return hasTab && !hasEditable()
+    }
+
+    /** 当前界面有没有可编辑输入框（= 真的进了搜索或聊天） */
+    private fun hasEditable(): Boolean = A11yBridge.allEditables(null).isNotEmpty()
+
     /**
      * 按布局找车机版微信顶部的放大镜。
      *
@@ -289,13 +328,13 @@ class WechatExecutor(
      * 右邻的「+」在 (59%, 17%)。所以先在顶部区域找可点的小图标，优先取最靠近
      * (54%, 17%) 的那个；一个都找不到就按这个比例直接点一次。
      */
-    private fun clickSearchIconByLayout(): Boolean {
+    private fun clickSearchIconByLayout(offsetDp: Int = 0): Boolean {
         val svc = A11yBridge.service() ?: return false
         val root = svc.rootInActiveWindow ?: return false
         val metrics = context.resources.displayMetrics
         val w = metrics.widthPixels
         val h = metrics.heightPixels
-        val targetX = w * 0.537f
+        val targetX = w * 0.537f + offsetDp * metrics.density
         val targetY = h * 0.170f
 
         var best: AccessibilityNodeInfo? = null

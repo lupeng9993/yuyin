@@ -19,6 +19,20 @@ object ModelCatalog {
 
     private const val BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
 
+    /**
+     * 模型服务端地址（例如 http://192.168.51.10:8099/models）。
+     * 非空时下载地址里的 GitHub 前缀会被整体替换，走局域网下载。
+     */
+    @Volatile
+    var serverBase: String = ""
+
+    /** 把 GitHub 地址换成服务端地址；服务端为空就原样返回 */
+    fun withServer(original: String, serverUrl: String = serverBase): String {
+        val base = serverUrl.trim().trimEnd('/')
+        if (base.isEmpty()) return original
+        return original.replace(BASE, base)
+    }
+
     val entries: List<Entry> = listOf(
         // ---------------- 唤醒 KWS ----------------
         Entry(

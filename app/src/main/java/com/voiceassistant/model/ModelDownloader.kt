@@ -58,7 +58,7 @@ class ModelDownloader(private val context: Context) {
         onProgress: (Progress) -> Unit = {}
     ): File? = withContext(Dispatchers.IO) {
         cancelled = false
-        val url = urlOverride.trim().ifBlank { entry.url }
+        val url = urlOverride.trim().ifBlank { ModelCatalog.withServer(entry.url) }
         val targetDir = ModelRepository.dir(context, entry.kind, entry.id)
 
         try {

@@ -97,6 +97,9 @@ class SettingsRepository private constructor(context: Context) {
             ttsSpeed = prefs[K.ttsSpeed] ?: default.ttsSpeed,
             ttsVolume = prefs[K.ttsVolume] ?: default.ttsVolume,
             debugMode = prefs[K.debugMode] ?: default.debugMode,
+            logUploadUrl = prefs[K.logUploadUrl] ?: default.logUploadUrl,
+            modelServerUrl = prefs[K.modelServerUrl] ?: default.modelServerUrl,
+            autoUploadLog = prefs[K.autoUploadLog] ?: default.autoUploadLog,
             triggerMusic = prefs[K.triggerMusic] ?: default.triggerMusic,
             triggerMovie = prefs[K.triggerMovie] ?: default.triggerMovie,
             triggerReverse = prefs[K.triggerReverse] ?: default.triggerReverse,
@@ -152,6 +155,9 @@ class SettingsRepository private constructor(context: Context) {
         m[K.ttsSpeed] = s.ttsSpeed
         m[K.ttsVolume] = s.ttsVolume
         m[K.debugMode] = s.debugMode
+        m[K.logUploadUrl] = s.logUploadUrl
+        m[K.modelServerUrl] = s.modelServerUrl
+        m[K.autoUploadLog] = s.autoUploadLog
         m[K.triggerMusic] = s.triggerMusic
         m[K.triggerMovie] = s.triggerMovie
         m[K.triggerReverse] = s.triggerReverse
@@ -205,6 +211,9 @@ class SettingsRepository private constructor(context: Context) {
         val ttsSpeed = floatPreferencesKey("tts_speed")
         val ttsVolume = floatPreferencesKey("tts_volume")
         val debugMode = booleanPreferencesKey("debug_mode")
+        val logUploadUrl = stringPreferencesKey("log_upload_url")
+        val modelServerUrl = stringPreferencesKey("model_server_url")
+        val autoUploadLog = booleanPreferencesKey("auto_upload_log")
         val triggerMusic = stringPreferencesKey("trigger_music")
         val triggerMovie = stringPreferencesKey("trigger_movie")
         val triggerReverse = stringPreferencesKey("trigger_reverse")
