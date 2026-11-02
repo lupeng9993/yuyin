@@ -732,6 +732,20 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 }
                 Hint("填了就走局域网下载，不再连 GitHub；留空走官方地址。目录结构与 GitHub 一致（kws-models/、asr-models/、tts-models/）。")
 
+                Divider(Modifier.padding(vertical = 6.dp))
+                Text("云端配置（临时测试，后期删除）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                FieldRow("同步地址", settings.syncUrl, "http://192.168.51.10:8099/config") { v ->
+                    vm.update { it.copy(syncUrl = v) }
+                }
+                FieldRow("同步口令（可选）", settings.syncPass, "不填则不迁移 API Key") { v ->
+                    vm.update { it.copy(syncPass = v) }
+                }
+                CloudSyncBar(
+                    settings = settings,
+                    onUpdate = { transform -> vm.update(transform) },
+                    onMessage = { infoMessage = it }
+                )
+
                 SwitchRow("悬浮小球", "常驻监听入口，也是 Android 14 后台启动麦克风的豁免条件", settings.floatBallEnabled) { v ->
                     vm.update { it.copy(floatBallEnabled = v) }
                 }

@@ -109,6 +109,10 @@ data class AppSettings(
     val logUploadUrl: String = "",
     /** 模型服务端地址；非空时下载模型不再走 GitHub */
     val modelServerUrl: String = "",
+    /** 云端配置同步地址（GET/POST /config） */
+    val syncUrl: String = "",
+    /** 同步口令：用于加密 API Key，换机后同口令可解开 */
+    val syncPass: String = "",
     val autoUploadLog: Boolean = false,
     val bootAutoStart: Boolean = false,
     val floatBallEnabled: Boolean = false,

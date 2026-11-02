@@ -99,6 +99,8 @@ class SettingsRepository private constructor(context: Context) {
             debugMode = prefs[K.debugMode] ?: default.debugMode,
             logUploadUrl = prefs[K.logUploadUrl] ?: default.logUploadUrl,
             modelServerUrl = prefs[K.modelServerUrl] ?: default.modelServerUrl,
+            syncUrl = prefs[K.syncUrl] ?: default.syncUrl,
+            syncPass = SecureStore.decrypt(prefs[K.syncPassEnc] ?: ""),
             autoUploadLog = prefs[K.autoUploadLog] ?: default.autoUploadLog,
             triggerMusic = prefs[K.triggerMusic] ?: default.triggerMusic,
             triggerMovie = prefs[K.triggerMovie] ?: default.triggerMovie,
@@ -157,6 +159,8 @@ class SettingsRepository private constructor(context: Context) {
         m[K.debugMode] = s.debugMode
         m[K.logUploadUrl] = s.logUploadUrl
         m[K.modelServerUrl] = s.modelServerUrl
+        m[K.syncUrl] = s.syncUrl
+        m[K.syncPassEnc] = SecureStore.encrypt(s.syncPass)
         m[K.autoUploadLog] = s.autoUploadLog
         m[K.triggerMusic] = s.triggerMusic
         m[K.triggerMovie] = s.triggerMovie
@@ -213,6 +217,8 @@ class SettingsRepository private constructor(context: Context) {
         val debugMode = booleanPreferencesKey("debug_mode")
         val logUploadUrl = stringPreferencesKey("log_upload_url")
         val modelServerUrl = stringPreferencesKey("model_server_url")
+        val syncUrl = stringPreferencesKey("sync_url")
+        val syncPassEnc = stringPreferencesKey("sync_pass_enc")
         val autoUploadLog = booleanPreferencesKey("auto_upload_log")
         val triggerMusic = stringPreferencesKey("trigger_music")
         val triggerMovie = stringPreferencesKey("trigger_movie")
