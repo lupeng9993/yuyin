@@ -39,20 +39,24 @@ object TimeParser {
         var hour: Int? = null
         var minute = 0
 
-        // 19:30 / 19点 / 19点30 / 7点半
-        val digitMatch = Regex("(\\d{1,2})\\s*[:：点时]\\s*(\\d{1,2})?").find(text)
-        if (digitMatch != null) {
-            hour = digitMatch.groupValues[1].toIntOrNull()
-            minute = digitMatch.groupValues[2].toIntOrNull() ?: 0
+        // 先处理「点半」：阿拉伯数字和中文都可能是「X点半」
+        val halfMatch = Regex("(\\d{1,2}|[零〇一二两三四五六七八九十]{1,3})\\s*点\\s*半").find(text)
+        if (halfMatch != null) {
+            val raw = halfMatch.groupValues[1]
+            hour = raw.toIntOrNull() ?: chineseToInt(raw)
+            minute = 30
         } else {
-            val cnMatch = Regex("([零〇一二两三四五六七八九十]{1,3})\\s*点\\s*(半|(?:[零〇一二两三四五六七八九十]{1,3})分?)?").find(text)
-            if (cnMatch != null) {
-                hour = chineseToInt(cnMatch.groupValues[1])
-                val tail = cnMatch.groupValues[2]
-                minute = when {
-                    tail == "半" -> 30
-                    tail.isNotEmpty() -> chineseToInt(tail.removeSuffix("分")) ?: 0
-                    else -> 0
+            // 19:30 / 19点 / 19点30
+            val digitMatch = Regex("(\\d{1,2})\\s*[:：点时]\\s*(\\d{1,2})?").find(text)
+            if (digitMatch != null) {
+                hour = digitMatch.groupValues[1].toIntOrNull()
+                minute = digitMatch.groupValues[2].toIntOrNull() ?: 0
+            } else {
+                val cnMatch = Regex("([零〇一二两三四五六七八九十]{1,3})\\s*点\\s*((?:[零〇一二两三四五六七八九十]{1,3})分?)?").find(text)
+                if (cnMatch != null) {
+                    hour = chineseToInt(cnMatch.groupValues[1])
+                    val tail = cnMatch.groupValues[2]
+                    minute = if (tail.isEmpty()) 0 else (chineseToInt(tail.removeSuffix("分")) ?: 0)
                 }
             }
         }

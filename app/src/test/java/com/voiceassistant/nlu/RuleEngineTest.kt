@@ -60,7 +60,18 @@ class RuleEngineTest {
 
     @Test
     fun `无关句子不命中`() {
-        assertNull(RuleEngine.matchLocal("今天天气怎么样"))
+        assertNull(RuleEngine.matchLocal("今天心情不太好"))
+        assertNull(RuleEngine.matchLocal("帮我写首诗"))
+    }
+
+    @Test
+    fun `天然没有动词的本地指令也能命中`() {
+        // 天气、时间、提醒这几类没有动词，靠关键词直接进系统控制
+        listOf("今天天气怎么样", "几点了", "今天几号", "今天星期几", "8点提醒我开会").forEach { text ->
+            val match = RuleEngine.matchLocal(text)
+            assertNotNull("「$text」应该本地命中", match)
+            assertEquals(ActionType.OTHER, match!!.plan.actions.single().type)
+        }
     }
 
     @Test
