@@ -211,8 +211,7 @@ object A11yBridge {
     }
 
     /** 用完清空剪贴板 */
-    fun clearClipboard() {
-        try {
+    fun clearClipboard() {        try {
             val svc = service() ?: return
             val cm = svc.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             cm.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
@@ -292,8 +291,56 @@ object A11yBridge {
         return false
     }
 
-    fun back(): Boolean = service()?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) ?: false
-    fun home(): Boolean = service()?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME) ?: false
+    /**
+     * 等价于按键盘上的「发送/前往」键（Android 11+）。
+     * 比去点输入法窗口里的具体键位可靠得多。
+     */
+    fun imeEnter(node: AccessibilityNodeInfo): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        return try {
+            node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "IME_ENTER 失败: ${e.message}")
+            false
+        }
+    }
+
+    /** 把当前界面的节点树写进日志，用来适配车机版/不同 ROM 的界面 */
+    fun dumpTree(tag: String = "NodeDump") {
+        val svc = service() ?: run {
+            DebugLog.w(tag, "无障碍未连接，导不出节点树")
+            return
+        }
+        DebugLog.d(tag, "===== 开始导出节点树 =====")
+        val roots = roots()
+        if (roots.isEmpty()) DebugLog.w(tag, "没有可用窗口")
+        roots.forEachIndexed { index, root ->
+            DebugLog.d(tag, "[窗口 $index] ${root.packageName} ${root.className}")
+            var visited = 0
+            fun walk(node: AccessibilityNodeInfo, depth: Int) {
+                if (visited++ > 400 || depth > 30) return
+                val r = android.graphics.Rect()
+                node.getBoundsInScreen(r)
+                val text = node.text?.toString()?.take(30).orEmpty()
+                val desc = node.contentDescription?.toString()?.take(30).orEmpty()
+                if (text.isNotEmpty() || desc.isNotEmpty() || node.isClickable || node.isEditable) {
+                    DebugLog.d(
+                        tag,
+                        "  ".repeat(depth) + "${node.className} [$r] " +
+                            "text='$text' desc='$desc' " +
+                            "click=${node.isClickable} edit=${node.isEditable} focus=${node.isFocused}"
+                    )
+                }
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { walk(it, depth + 1) }
+                }
+            }
+            walk(root, 0)
+        }
+        DebugLog.d(tag, "===== 节点树导出结束 =====")
+    }
+
+    fun back(): Boolean = service()?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) ?: false    fun home(): Boolean = service()?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME) ?: false
 
     /** 当前所有可编辑节点（按面积从大到小），用于「挨个试到能写进去为止」 */
     fun allEditables(exclude: AccessibilityNodeInfo? = null): List<AccessibilityNodeInfo> {

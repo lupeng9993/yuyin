@@ -494,6 +494,17 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     onClick = { SystemSettings.open(context, SystemSettings.accessibilityIntent()) }
                 ) { Text(if (uiState.accessibilityReady) "无障碍已开启" else "去开启无障碍服务") }
 
+                FieldRow("发送键偏移（dp）", settings.sendOffsetDp, "8") { v ->
+                    vm.update { it.copy(sendOffsetDp = v) }
+                }
+                Hint("发不出去或点偏了再调这个，一般 8～40；车机版输入框更宽，可能需要大一点。")
+
+                OutlinedButton(onClick = {
+                    com.voiceassistant.exec.A11yBridge.dumpTree()
+                    infoMessage = "节点树已写入日志，导出日志发出来即可"
+                }) { Text("导出当前界面节点树") }
+                Hint("先停在出问题的界面（例如微信聊天界面），再点这个按钮。")
+
                 Divider(Modifier.padding(vertical = 6.dp))
                 Text("其他应用与系统控制", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 SwitchRow("启用系统控制", "音量、截屏、打开应用、播放控制", settings.otherEnabled) { v ->

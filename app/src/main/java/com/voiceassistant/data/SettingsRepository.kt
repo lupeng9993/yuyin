@@ -84,8 +84,10 @@ class SettingsRepository private constructor(context: Context) {
             amapKey = SecureStore.decrypt(prefs[K.amapKeyEnc] ?: ""),
             amapSecurityKey = SecureStore.decrypt(prefs[K.amapSecurityEnc] ?: ""),
             navConfirm = prefs[K.navConfirm] ?: default.navConfirm,
+            navApp = prefs[K.navApp] ?: default.navApp,
             wechatEnabled = prefs[K.wechatEnabled] ?: default.wechatEnabled,
             wechatForceConfirm = prefs[K.wechatForceConfirm] ?: default.wechatForceConfirm,
+            sendOffsetDp = prefs[K.sendOffsetDp] ?: default.sendOffsetDp,
             otherEnabled = prefs[K.otherEnabled] ?: default.otherEnabled,
             ttsEnabled = prefs[K.ttsEnabled] ?: default.ttsEnabled,
             ttsEngine = TtsEngine.of(prefs[K.ttsEngine]),
@@ -136,8 +138,10 @@ class SettingsRepository private constructor(context: Context) {
         if (s.amapSecurityKey.isNotEmpty()) m[K.amapSecurityEnc] = SecureStore.encrypt(s.amapSecurityKey)
         else m.remove(K.amapSecurityEnc)
         m[K.navConfirm] = s.navConfirm
+        m[K.navApp] = s.navApp
         m[K.wechatEnabled] = s.wechatEnabled
         m[K.wechatForceConfirm] = s.wechatForceConfirm
+        m[K.sendOffsetDp] = s.sendOffsetDp
         m[K.otherEnabled] = s.otherEnabled
         m[K.ttsEnabled] = s.ttsEnabled
         m[K.ttsEngine] = s.ttsEngine.id
@@ -186,8 +190,10 @@ class SettingsRepository private constructor(context: Context) {
         val amapKeyEnc = stringPreferencesKey("amap_key_enc")
         val amapSecurityEnc = stringPreferencesKey("amap_security_enc")
         val navConfirm = booleanPreferencesKey("nav_confirm")
+        val navApp = stringPreferencesKey("nav_app")
         val wechatEnabled = booleanPreferencesKey("wechat_enabled")
         val wechatForceConfirm = booleanPreferencesKey("wechat_force_confirm")
+        val sendOffsetDp = stringPreferencesKey("send_offset_dp")
         val otherEnabled = booleanPreferencesKey("other_enabled")
         val ttsEnabled = booleanPreferencesKey("tts_enabled")
         val ttsEngine = stringPreferencesKey("tts_engine")

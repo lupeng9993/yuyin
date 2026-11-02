@@ -266,26 +266,69 @@ class NavigationExecutor(
 
     private fun launchAmap(place: Place): Boolean {
         val encodedName = URLEncoder.encode(place.name, "UTF-8")
-        val naviUri = Uri.parse(
-            "androidamap://navi?sourceApplication=voiceassistant&poiname=$encodedName" +
-                "&lat=${place.lat}&lon=${place.lng}&dev=0&style=2"
-        )
-        val intent = Intent(Intent.ACTION_VIEW, naviUri).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val target = when {
-            isInstalled(AMAP_PKG) -> AMAP_PKG
-            isInstalled(AMAP_AUTO_PKG) -> AMAP_AUTO_PKG
-            else -> null
-        } ?: return false
+        val target = pickNavPackage() ?: return false
 
-        intent.setPackage(target)
+        // 车机版优先用 amapauto://，不支持再退到 androidamap://
+        val uris = when (target) {
+            AMAP_AUTO_PKG -> listOf(
+                "amapauto://navi?sourceApplication=voiceassistant&poiname=$encodedName" +
+                    "&lat=${place.lat}&lon=${place.lng}&dev=0&style=2",
+                "androidamap://navi?sourceApplication=voiceassistant&poiname=$encodedName" +
+                    "&lat=${place.lat}&lon=${place.lng}&dev=0&style=2"
+            )
+            else -> listOf(
+                "androidamap://navi?sourceApplication=voiceassistant&poiname=$encodedName" +
+                    "&lat=${place.lat}&lon=${place.lng}&dev=0&style=2"
+            )
+        }
+
+        for (raw in uris) {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(raw)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                setPackage(target)
+            }
+            val can = context.packageManager.resolveActivity(intent, 0) != null
+            DebugLog.d(TAG, "尝试 ${raw.substringBefore('?')} → ${if (can) "可处理" else "无人处理"}")
+            if (!can) continue
+            try {
+                context.startActivity(intent)
+                DebugLog.d(TAG, "已用车机版/手机版唤起导航 pkg=$target")
+                return true
+            } catch (e: Exception) {
+                DebugLog.w(TAG, "唤起失败: ${e.message}")
+            }
+        }
+
+        // 退到"只打开应用"
         return try {
-            context.startActivity(intent)
+            val open = context.packageManager.getLaunchIntentForPackage(target)
+                ?: return false
+            open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(open)
+            DebugLog.w(TAG, "URI 都不行，只打开了 $target 主界面")
             true
         } catch (e: Exception) {
-            DebugLog.e(TAG, "唤起高德失败", e)
+            DebugLog.e(TAG, "打开导航应用失败", e)
             false
+        }
+    }
+
+    /** 按设置挑导航应用：默认「自动」= 装了车机版就优先车机版 */
+    private fun pickNavPackage(): String? {
+        val auto = AMAP_AUTO_PKG
+        val phone = AMAP_PKG
+        val prefer = when (settings.navApp) {
+            "amapauto" -> auto
+            "amap" -> phone
+            "baidu" -> "com.baidu.BaiduMap"
+            else -> null
+        }
+        if (prefer != null) return if (isInstalled(prefer)) prefer else null
+
+        return when {
+            isInstalled(auto) -> auto
+            isInstalled(phone) -> phone
+            else -> null
         }
     }
 

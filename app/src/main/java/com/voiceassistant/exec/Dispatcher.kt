@@ -30,7 +30,10 @@ class Dispatcher(
     }
 
     private val navigation = NavigationExecutor(context, settings)
-    private val wechat = WechatExecutor(context)
+    private val wechat = WechatExecutor(
+        context = context,
+        offsetDp = { settings.sendOffsetDp.toFloatOrNull() ?: 8f }
+    )
     private val system = SystemExecutor(context, settings, confirm)
 
     suspend fun dispatch(plan: ActionPlan): DispatchOutcome {

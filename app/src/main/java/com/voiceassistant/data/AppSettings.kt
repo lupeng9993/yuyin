@@ -75,8 +75,12 @@ data class AppSettings(
     /** 高德「安全密钥」(jscode)：2021-12-02 之后新申请的 Key 必填 */
     val amapSecurityKey: String = "",
     val navConfirm: Boolean = false,
+    /** 导航应用：auto（装了车机版就优先车机版）/ amapauto / amap / baidu */
+    val navApp: String = "auto",
     val wechatEnabled: Boolean = false,
     val wechatForceConfirm: Boolean = true,
+    /** 发送键相对输入框右边缘的偏移（dp），车机版和手机版不同 */
+    val sendOffsetDp: String = "8",
     val otherEnabled: Boolean = true,
 
     // TTS

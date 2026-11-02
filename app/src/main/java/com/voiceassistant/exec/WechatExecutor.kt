@@ -18,7 +18,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 2. 搜到多个相似联系人 → **语音问"第几个"**，不盲点第一个；
  * 3. 进聊天前二次核对，输入完成后再次确认才发送。
  */
-class WechatExecutor(private val context: Context) {
+class WechatExecutor(
+    private val context: Context,
+    /** 发送键相对输入框右边缘的偏移（dp），车机/手机不一样，可在设置里调 */
+    private val offsetDp: () -> Float = { 8f }
+) {
 
     private companion object {
         const val TAG = "Wechat"
@@ -61,6 +65,9 @@ class WechatExecutor(private val context: Context) {
             delay(900)
         }
         if (searchEntry == null) {
+            // 车机版微信的搜索是个纯图标（没有"搜索"文字/描述），需要看真实节点结构来适配
+            DebugLog.w(TAG, "找不到搜索入口，自动导出当前界面节点树")
+            A11yBridge.dumpTree("NodeDump")
             return@withContext fail(action, "找不到微信搜索入口", "连续返回 $MAX_BACK 次仍未出现搜索")
         }
         A11yBridge.click(searchEntry)
@@ -124,19 +131,92 @@ class WechatExecutor(private val context: Context) {
             return@withContext ActionResult(action, false, "已取消发送", "用户在输入完成后取消")
         }
 
-        val sendButton = awaitNode("发送按钮", 4000L) {
-            A11yBridge.findNode(A11yBridge.TextFilter(contentDesc = "发送"))
-                ?: A11yBridge.findNode(A11yBridge.TextFilter(exact = "发送"))
-                ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "发送"))
-        } ?: return@withContext fail(action, "找不到发送按钮，消息未发送", "发送按钮缺失")
+        val sendLevel = doSend(chatInput)
+        if (sendLevel == null) {
+            return@withContext fail(action, "找不到发送按钮，消息未发送", "四级发送全部失败")
+        }
+        delay(600)
+        DebugLog.d(TAG, "消息已发送给 $matchedName（发送方式：$sendLevel）")
+        ActionResult(action, true, "消息已发送给$matchedName", "contact=$matchedName send=$sendLevel")
+    }
 
-        if (!A11yBridge.click(sendButton)) {
-            return@withContext fail(action, "点击发送失败", "click 返回 false")
+    /**
+     * 四级发送，按可靠性排序。
+     * 车机版微信是左右分栏、发送键没有文字；手机版发送键常在输入法里。
+     * 所以不假设位置：先走系统输入法动作，再找文字，再按输入框右侧坐标点。
+     */
+    private suspend fun doSend(chatInput: AccessibilityNodeInfo): String? {
+        // 0. 先点一下输入框，让键盘弹出、输入框获得焦点
+        A11yBridge.click(chatInput)
+        delay(500)
+
+        // 1. 系统级「发送」动作（等价按键盘发送键）
+        if (A11yBridge.imeEnter(chatInput)) {
+            DebugLog.d(TAG, "发送级别 1：ACTION_IME_ENTER")
+            return "IME_ENTER"
         }
 
-        delay(600)
-        DebugLog.d(TAG, "消息已发送给 $matchedName")
-        ActionResult(action, true, "消息已发送给$matchedName", "contact=$matchedName")
+        // 2. 文字/描述里带「发送」的节点
+        val byText = A11yBridge.findNode(A11yBridge.TextFilter(contentDesc = "发送"))
+            ?: A11yBridge.findNode(A11yBridge.TextFilter(exact = "发送"))
+            ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "发送"))
+        if (byText != null && A11yBridge.click(byText)) {
+            DebugLog.d(TAG, "发送级别 2：文字匹配 ${byText.className}")
+            return "文字匹配"
+        }
+
+        // 3. 按输入框右侧坐标点（车机版/手机版共用，偏移可在设置里调）
+        val rect = android.graphics.Rect()
+        chatInput.getBoundsInScreen(rect)
+        val density = context.resources.displayMetrics.density
+        val offsetPx = (offsetDp() * density).toInt().coerceAtLeast(8)
+        val x = (rect.right - offsetPx).coerceIn(0, rect.right)
+        val y = rect.centerY()
+        if (A11yBridge.clickByGesture(x, y)) {
+            DebugLog.d(TAG, "发送级别 3：坐标点击 ($x, $y) 输入框=$rect")
+            return "坐标($x,$y)"
+        }
+
+        // 4. 兜底：右下角区域里最小的可点节点
+        val fallback = findBottomRightClickable()
+        if (fallback != null && A11yBridge.click(fallback)) {
+            DebugLog.d(TAG, "发送级别 4：右下角兜底 ${fallback.className}")
+            return "右下角兜底"
+        }
+
+        return null
+    }
+
+    /** 右下角（底部 30% / 右侧 35%）里面积最小的可点节点 */
+    private fun findBottomRightClickable(): AccessibilityNodeInfo? {
+        val svc = A11yBridge.service() ?: return null
+        val root = svc.rootInActiveWindow ?: return null
+        val metrics = context.resources.displayMetrics
+        val minX = metrics.widthPixels * 0.65f
+        val minY = metrics.heightPixels * 0.70f
+
+        var best: AccessibilityNodeInfo? = null
+        var bestArea = Long.MAX_VALUE
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+        while (queue.isNotEmpty() && visited < 600) {
+            val node = queue.removeFirst()
+            visited++
+            val r = android.graphics.Rect()
+            node.getBoundsInScreen(r)
+            if (node.isClickable && node.isVisibleToUser &&
+                r.left >= minX && r.top >= minY && r.width() in 20..300 && r.height() in 20..300
+            ) {
+                val area = r.width().toLong() * r.height()
+                if (area < bestArea) {
+                    bestArea = area
+                    best = node
+                }
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it) }
+        }
+        return best
     }
 
     private fun fail(action: VaAction, speech: String, detail: String): ActionResult {
