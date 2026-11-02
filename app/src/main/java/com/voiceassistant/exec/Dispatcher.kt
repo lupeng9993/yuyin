@@ -21,7 +21,9 @@ class Dispatcher(
     /** 导航有多个候选地点时，让上层（语音/界面）挑一个 */
     private val choosePlace: suspend (List<NavigationExecutor.Place>) -> NavigationExecutor.Place?,
     /** 通用选择（微信同名联系人等）：返回下标，null 表示取消 */
-    private val chooseOption: suspend (List<String>) -> Int? = { null }
+    private val chooseOption: suspend (List<String>) -> Int? = { null },
+    /** 播报问题并听一句自由内容（微信多轮追加用），null 表示没听到 */
+    private val listenText: suspend (String, Long) -> String? = { _, _ -> null }
 ) {
 
     private companion object {
@@ -32,7 +34,8 @@ class Dispatcher(
     private val navigation = NavigationExecutor(context, settings)
     private val wechat = WechatExecutor(
         context = context,
-        offsetDp = { settings.sendOffsetDp.toFloatOrNull() ?: 8f }
+        offsetDp = { settings.sendOffsetDp.toFloatOrNull() ?: 8f },
+        listen = listenText
     )
     private val system = SystemExecutor(context, settings, confirm)
 

@@ -21,7 +21,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 class WechatExecutor(
     private val context: Context,
     /** 发送键相对输入框右边缘的偏移（dp），车机/手机不一样，可在设置里调 */
-    private val offsetDp: () -> Float = { 8f }
+    private val offsetDp: () -> Float = { 8f },
+    /** 播报一个问题并听一句自由内容；返回 null 表示没听到 */
+    private val listen: suspend (String, Long) -> String? = { _, _ -> null }
 ) {
 
     private companion object {
@@ -57,6 +59,13 @@ class WechatExecutor(
             if (searchEntry != null) {
                 if (attempt > 0) DebugLog.d(TAG, "返回 $attempt 次后找到搜索入口")
                 break
+            }
+            if (!inWechatWindow()) {
+                // 不在微信里就绝不按返回（之前就是这样把微信退掉的）
+                DebugLog.w(TAG, "当前不在微信（${A11yBridge.currentWindowPackage()}），重新拉起")
+                relaunchWechat()
+                delay(1800)
+                continue
             }
             if (isOnMainList()) {
                 DebugLog.d(TAG, "已在微信列表页，停止按返回，改用图标定位")
@@ -100,72 +109,197 @@ class WechatExecutor(
             )
         }
 
-        // 2. 输入联系人：所有可编辑节点挨个试，谁能写进去就用谁
-        val searchInput = typeIntoAnyEditable(contact, exclude = null)
-            ?: return@withContext fail(action, "搜索框写不进文字（SET_TEXT/粘贴/菜单粘贴都失败）", "无可用可编辑节点")
-        delay(1500)
+        // 2. 输入联系人：车机版搜索框在**右栏顶部**，左栏是聊天列表，不能写左栏
+        val searchInput = clearAndType(contact, exclude = null)
+            ?: return@withContext fail(action, "搜索框写不进文字", "右栏没有可写入的输入框")
+        delay(1200)
 
-        // 3. 收集候选（排除搜索框自己）
+        // 3. 结果只在右栏找
         val candidates = awaitNodes("联系人结果", 3000L) { findResults(contact, searchInput) }
         if (candidates.isEmpty()) {
             A11yBridge.back()
-            return@withContext fail(action, "未找到联系人「$contact」，消息未发送", "搜索结果为空（已排除搜索框）")
+            return@withContext fail(action, "未找到联系人「$contact」，消息未发送", "搜索结果为空")
         }
 
-        // 4. 多个候选 → 语音问第几个
-        val pickedIndex: Int
-        if (candidates.size == 1) {
-            pickedIndex = 0
-        } else {
-            val names = candidates.map { it.first }
-            val idx = choose(names)
-            if (idx == null || idx !in candidates.indices) {
-                A11yBridge.back()
-                return@withContext fail(
-                    action,
-                    "找到 ${candidates.size} 个相近联系人，没有选择，已取消",
-                    "候选取消: $names"
-                )
+        // 4. 完全匹配且唯一 → 直接进；否则问一句 / 问第几个
+        val exact = candidates.filter { it.first.trim() == contact.trim() }
+        val pickedIndex: Int = when {
+            exact.size == 1 -> candidates.indexOf(exact.first())
+
+            candidates.size == 1 -> {
+                val only = candidates[0].first
+                if (!confirm("找到「$only」，是要发给TA吗？")) {
+                    A11yBridge.back()
+                    return@withContext ActionResult(action, false, "已取消", "包含匹配被拒绝")
+                }
+                0
             }
-            pickedIndex = idx
+
+            else -> {
+                val names = candidates.map { it.first }
+                val idx = choose(names)
+                if (idx == null || idx !in candidates.indices) {
+                    A11yBridge.back()
+                    return@withContext fail(
+                        action,
+                        "有 ${names.size} 个匹配，没有选择，已取消",
+                        "候选取消: $names"
+                    )
+                }
+                idx
+            }
         }
         val matchedName = candidates[pickedIndex].first
         val resultNode = candidates[pickedIndex].second
 
-        if (!confirm("搜索到「$matchedName」，是要发给TA吗？说确认或取消。")) {
-            A11yBridge.back()
-            return@withContext ActionResult(action, false, "已取消，没有进入聊天", "结果核对后用户取消")
-        }
-
         if (!A11yBridge.click(resultNode)) {
             return@withContext fail(action, "点不开联系人「$matchedName」", "点击失败")
         }
+        delay(1200)
 
-        // 5. 输入消息：同样挨个试可编辑节点（排除搜索框）
-        val chatInput = typeIntoAnyEditable(message, exclude = searchInput)
+        // 5. 聊天输入框（右栏底部）写入初始内容
+        var body = message
+        val chatInput = clearAndType(body, exclude = searchInput)
             ?: return@withContext fail(
                 action,
-                "没进到和「$matchedName」的聊天界面，或消息写不进去，未发送",
+                "没进到和「$matchedName」的聊天界面，或消息写不进去",
                 "点击后没有可写入的聊天输入框"
             )
-        delay(800)
+        delay(600)
 
-        // 只做记录，不再因为读不到内容就中止（微信节点文本经常滞后）
-        val typed = chatInput.text?.toString().orEmpty()
-        DebugLog.d(TAG, "输入框回读内容=${if (typed.isBlank()) "(空/读不到)" else typed}")
+        // 6. 多轮追加：最多 3 轮，6 秒静默就追问一次
+        var rounds = 0
+        var sendNow = false
+        while (rounds < 3 && !sendNow) {
+            rounds++
+            val answer = listen("还有要添加的吗？没有就说发送", 6_000)
+            if (answer == null) {
+                val again = listen("要发送吗", 6_000)
+                if (again == null || !isAffirmative(again)) {
+                    // 不发送：退出聊天并回桌面
+                    A11yBridge.back()
+                    delay(600)
+                    A11yBridge.home()
+                    DebugLog.d(TAG, "两轮都没回应，取消发送并回桌面")
+                    return@withContext ActionResult(action, false, "没有发送，已退出", "超时取消")
+                }
+                sendNow = true
+                break
+            }
 
-        // 6. 输入完成后才确认发送
-        if (!confirm("给${matchedName}发「$message」，确认发送吗？")) {
-            return@withContext ActionResult(action, false, "已取消发送", "用户在输入完成后取消")
+            val said = answer.trim()
+            if (wantsSend(said)) {
+                sendNow = true
+                break
+            }
+            if (said.isNotEmpty()) {
+                body = if (body.isBlank()) said else "$body $said"
+                if (!clearAndType(body, exclude = searchInput)) {
+                    DebugLog.w(TAG, "追加内容写入失败")
+                }
+                delay(400)
+            }
         }
+        if (!sendNow) DebugLog.d(TAG, "追加 $rounds 轮后直接发送")
 
+        // 7. 点发送
         val sendLevel = doSend(chatInput)
         if (sendLevel == null) {
-            return@withContext fail(action, "找不到发送按钮，消息未发送", "四级发送全部失败")
+            return@withContext fail(
+                action,
+                "找不到发送按钮，消息留在输入框里了",
+                "四级发送全部失败"
+            )
         }
-        delay(600)
-        DebugLog.d(TAG, "消息已发送给 $matchedName（发送方式：$sendLevel）")
-        ActionResult(action, true, "消息已发送给$matchedName", "contact=$matchedName send=$sendLevel")
+        delay(1200)
+
+        // 8. 校验：右栏里出现这条消息才算真发出去
+        val appeared = messageAppears(body)
+        DebugLog.d(TAG, "发送复核 appeared=$appeared send=$sendLevel")
+        return ActionResult(
+            action,
+            appeared,
+            if (appeared) "已发送给$matchedName" else "点了发送，但没看到消息，请确认一下",
+            "contact=$matchedName send=$sendLevel appeared=$appeared rounds=$rounds"
+        )
+    }
+
+    /** 「没有」「发送」「发送吧」「说了发送」——句末才算发送指令 */
+    private fun wantsSend(text: String): Boolean {
+        val t = text.trim().trimEnd('。', '.', '，', ',', '!', '！')
+        if (t == "没有" || t == "不用了" || t == "没有了") return true
+        return t.endsWith("发送") || t.endsWith("发送吧") || t.endsWith("发出去") ||
+            t.endsWith("确认发送") || t == "发"
+    }
+
+    private fun isAffirmative(text: String): Boolean {
+        val t = text.trim()
+        if (wantsSend(t)) return true
+        return t.contains("是") || t.contains("好") || t.contains("嗯") || t.contains("对") || t.contains("发")
+    }
+
+    /**
+     * 发完之后右栏里能看到这条消息吗。
+     *
+     * 必须**排除可编辑节点**：发送失败时文字还留在输入框里，
+     * 如果连输入框一起搜，会把"没发出去"误判成"已发送"。
+     */
+    private fun messageAppears(text: String): Boolean {
+        val key = text.trim().take(12)
+        if (key.isEmpty()) return false
+        val svc = A11yBridge.service() ?: return false
+        val root = svc.rootInActiveWindow ?: return false
+
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+        while (queue.isNotEmpty() && visited < 900) {
+            val node = queue.removeFirst()
+            visited++
+            if (!node.isEditable && node.isVisibleToUser) {
+                val label = node.text?.toString().orEmpty()
+                if (label.contains(key)) return true
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+        }
+        return false
+    }
+
+    /** 只在右栏（x > 屏宽/2）找可编辑节点，先清空再写入 */
+    private suspend fun clearAndType(text: String, exclude: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        val metrics = context.resources.displayMetrics
+        val half = metrics.widthPixels / 2
+        val rightSide = A11yBridge.allEditables(exclude).filter { node ->
+            val r = android.graphics.Rect()
+            node.getBoundsInScreen(r)
+            r.centerX() > half
+        }
+        val targets = rightSide.ifEmpty { A11yBridge.allEditables(exclude) }
+
+        for (node in targets) {
+            if (A11yBridge.nodeHasText(node, text)) return node
+            clearNode(node)
+            if (A11yBridge.setText(node, text)) return node
+        }
+        return null
+    }
+
+    /** 清掉搜索框里上次留下的字 */
+    private fun clearNode(node: AccessibilityNodeInfo) {
+        try {
+            val args = android.os.Bundle().apply {
+                putCharSequence(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    ""
+                )
+            }
+            node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        } catch (e: Exception) {
+            // 没清掉也不影响写新内容
+        }
     }
 
     /**
@@ -310,12 +444,35 @@ class WechatExecutor(
 
     /**
      * 是否停在微信「聊天列表页」。
-     * 依据：车机版底部有「通讯录 / 发现 / 我」三个 tab，且没有聊天输入框。
+     *
+     * 只看底部 tab（通讯录/发现/我），**不能**再要求"没有输入框"——
+     * 车机版列表页顶部常驻一个可编辑的搜索框，之前那个条件让它永远判定为"不在列表页"，
+     * 于是连按返回把微信退到了后台。
      */
     private fun isOnMainList(): Boolean {
-        val hasTab = A11yBridge.findNode(A11yBridge.TextFilter(exact = "通讯录")) != null ||
-            A11yBridge.findNode(A11yBridge.TextFilter(exact = "发现")) != null
-        return hasTab && !hasEditable()
+        return A11yBridge.findNode(A11yBridge.TextFilter(exact = "通讯录")) != null ||
+            A11yBridge.findNode(A11yBridge.TextFilter(exact = "发现")) != null ||
+            A11yBridge.findNode(A11yBridge.TextFilter(exact = "我")) != null
+    }
+
+    /** 当前前台是不是微信 */
+    private fun inWechatWindow(): Boolean =
+        A11yBridge.currentWindowPackage() == WECHAT_PKG
+
+    /** 重新把微信拉到前台 */
+    private fun relaunchWechat() {
+        try {
+            val intent = context.packageManager.getLaunchIntentForPackage(WECHAT_PKG)
+                ?: return
+            intent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "重新拉起微信失败: ${e.message}")
+        }
     }
 
     /** 当前界面有没有可编辑输入框（= 真的进了搜索或聊天） */
@@ -334,7 +491,7 @@ class WechatExecutor(
         val metrics = context.resources.displayMetrics
         val w = metrics.widthPixels
         val h = metrics.heightPixels
-        val targetX = w * 0.537f + offsetDp * metrics.density
+        val targetX = w * 0.43f + offsetDp * metrics.density
         val targetY = h * 0.170f
 
         var best: AccessibilityNodeInfo? = null
@@ -349,7 +506,7 @@ class WechatExecutor(
             node.getBoundsInScreen(r)
             val sizeOk = r.width() in 24..160 && r.height() in 24..160
             val topBand = r.top >= h * 0.08f && r.bottom <= h * 0.28f
-            val xOk = r.centerX() >= w * 0.40f && r.centerX() <= w * 0.65f
+            val xOk = r.centerX() >= w * 0.28f && r.centerX() <= w * 0.52f
             if (node.isClickable && node.isVisibleToUser && sizeOk && topBand && xOk) {
                 val dx = r.centerX() - targetX
                 val dy = r.centerY() - targetY

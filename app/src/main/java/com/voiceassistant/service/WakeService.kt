@@ -506,7 +506,8 @@ class WakeService : Service() {
             settings = settings,
             confirm = { question -> askQuestion(question) },
             choosePlace = { places -> askPlaceChoice(places) },
-            chooseOption = { options -> askChoice(options) }
+            chooseOption = { options -> askChoice(options) },
+            listenText = { question, timeoutMs -> askFreeText(question, timeoutMs) }
         ).dispatch(plan)
 
         reportOutcome(outcome)
@@ -603,6 +604,21 @@ class WakeService : Service() {
             answer.contains(p.name) || (p.name.length >= 2 && answer.contains(p.name.take(2)))
         }.let { if (it >= 0) return it }
         return null
+    }
+
+    /** 播报一个问题，然后听一句自由内容（微信多轮追加用）；没听到返回 null */
+    private suspend fun askFreeText(question: String, timeoutMs: Long): String? {
+        state = State.SPEAKING
+        speakSafely(question)
+        delay(150)
+        drainAudio()
+
+        state = State.CONFIRMING
+        val samples = captureUtterance(timeoutMs, requireSpeech = false)
+        if (samples.size < AudioCapture.SAMPLE_RATE * 300 / 1000) return null
+        val answer = recognize(samples).trim()
+        DebugLog.d(TAG, "自由回答: $answer")
+        return answer.ifBlank { null }
     }
 
     /** 通用「说第几个」选择（微信同名联系人等）；超时返回 null */
