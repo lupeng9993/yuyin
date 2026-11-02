@@ -396,6 +396,25 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 CloudProfileBar(settings) { transform -> vm.update(transform) }
                 Divider(Modifier.padding(vertical = 6.dp))
 
+                SwitchRow(
+                    "自动学习",
+                    "云端解析成功后记住句式，下次本地直接执行",
+                    settings.autoLearn
+                ) { v -> vm.update { it.copy(autoLearn = v) } }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = {
+                        infoMessage = "已学习 ${com.voiceassistant.nlu.LearnedRules.count(context)} 条：\n" +
+                            com.voiceassistant.nlu.LearnedRules.summary(context)
+                                .take(10)
+                                .joinToString("\n")
+                                .ifBlank { "（还没有学习到任何句式）" }
+                    }) { Text("查看已学句式") }
+                    OutlinedButton(onClick = {
+                        com.voiceassistant.nlu.LearnedRules.clear(context)
+                        infoMessage = "已清空全部学习记录"
+                    }) { Text("清空学习记录") }
+                }
+
                 SwitchRow("启用云端解析", "只发送识别后的文本，绝不上传音频", settings.cloudEnabled) { v ->
                     vm.update { it.copy(cloudEnabled = v) }
                 }
@@ -471,6 +490,20 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 SwitchRow("导航前二次确认", "默认关闭", settings.navConfirm, settings.navEnabled) { v ->
                     vm.update { it.copy(navConfirm = v) }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "auto" to "自动（优先车机版）",
+                        "amapauto" to "车机版",
+                        "amap" to "手机版",
+                        "baidu" to "百度"
+                    ).forEach { (value, label) ->
+                        OutlinedButton(onClick = { vm.update { it.copy(navApp = value) } }) {
+                            Text(if (settings.navApp == value) "● $label" else label)
+                        }
+                    }
+                }
+                Hint("「自动」= 装了高德车机版就优先用它。")
+
                 Hint("客户端直连高德 Web API，Key 泄露与配额风险由用户自担（文档已排除自建后端）。")
                 OutlinedButton(
                     onClick = { vm.testGeocode { msg -> infoMessage = msg } },
@@ -647,6 +680,33 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     }
                 }) { Text("开启通知使用权（控制音乐播放）") }
                 Hint("开启后「暂停 / 继续播放 / 上一首 / 下一首」才真的能控制其它音乐 App。")
+
+                Divider(Modifier.padding(vertical = 6.dp))
+                Text("关于", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                val pkgInfo = remember {
+                    runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
+                }
+                val versionName = pkgInfo?.versionName ?: "未知"
+                val versionCode = if (android.os.Build.VERSION.SDK_INT >= 28) {
+                    pkgInfo?.longVersionCode ?: 0L
+                } else {
+                    @Suppress("DEPRECATION")
+                    (pkgInfo?.versionCode ?: 0).toLong()
+                }
+                Text(
+                    "版本：$versionName（build $versionCode）",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "包名：${context.packageName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "离线优先的语音助手：唤醒 → 识别 → 本地规则优先 → 云端兜底",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
                 SwitchRow("悬浮小球", "常驻监听入口，也是 Android 14 后台启动麦克风的豁免条件", settings.floatBallEnabled) { v ->
                     vm.update { it.copy(floatBallEnabled = v) }

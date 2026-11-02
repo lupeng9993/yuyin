@@ -64,13 +64,21 @@ class WechatExecutor(
             A11yBridge.back()
             delay(900)
         }
-        if (searchEntry == null) {
-            // 车机版微信的搜索是个纯图标（没有"搜索"文字/描述），需要看真实节点结构来适配
-            DebugLog.w(TAG, "找不到搜索入口，自动导出当前界面节点树")
-            A11yBridge.dumpTree("NodeDump")
-            return@withContext fail(action, "找不到微信搜索入口", "连续返回 $MAX_BACK 次仍未出现搜索")
+        if (searchEntry != null) {
+            A11yBridge.click(searchEntry)
+        } else {
+            // 车机版微信的搜索是个纯放大镜图标（没有"搜索"文字/描述），按布局位置点
+            DebugLog.w(TAG, "没找到搜索入口，改按车机版布局点放大镜")
+            if (!clickSearchIconByLayout()) {
+                A11yBridge.dumpTree("NodeDump")
+                return@withContext fail(
+                    action,
+                    "找不到微信搜索入口",
+                    "文字匹配和图标定位都没点中"
+                )
+            }
         }
-        A11yBridge.click(searchEntry)
+        delay(900)
 
         // 2. 输入联系人：所有可编辑节点挨个试，谁能写进去就用谁
         val searchInput = typeIntoAnyEditable(contact, exclude = null)
@@ -272,6 +280,60 @@ class WechatExecutor(
         } ?: emptyList()
         if (list.isEmpty()) DebugLog.w(TAG, "等待「$label」超时")
         return list
+    }
+
+    /**
+     * 按布局找车机版微信顶部的放大镜。
+     *
+     * 依据实测截图：1920x1200 上车机版顶栏的放大镜大约在 (54%, 17%)，
+     * 右邻的「+」在 (59%, 17%)。所以先在顶部区域找可点的小图标，优先取最靠近
+     * (54%, 17%) 的那个；一个都找不到就按这个比例直接点一次。
+     */
+    private fun clickSearchIconByLayout(): Boolean {
+        val svc = A11yBridge.service() ?: return false
+        val root = svc.rootInActiveWindow ?: return false
+        val metrics = context.resources.displayMetrics
+        val w = metrics.widthPixels
+        val h = metrics.heightPixels
+        val targetX = w * 0.537f
+        val targetY = h * 0.170f
+
+        var best: AccessibilityNodeInfo? = null
+        var bestDist = Float.MAX_VALUE
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+        while (queue.isNotEmpty() && visited < 600) {
+            val node = queue.removeFirst()
+            visited++
+            val r = android.graphics.Rect()
+            node.getBoundsInScreen(r)
+            val sizeOk = r.width() in 24..160 && r.height() in 24..160
+            val topBand = r.top >= h * 0.08f && r.bottom <= h * 0.28f
+            val xOk = r.centerX() >= w * 0.40f && r.centerX() <= w * 0.65f
+            if (node.isClickable && node.isVisibleToUser && sizeOk && topBand && xOk) {
+                val dx = r.centerX() - targetX
+                val dy = r.centerY() - targetY
+                val dist = dx * dx + dy * dy
+                if (dist < bestDist) {
+                    bestDist = dist
+                    best = node
+                }
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it) }
+        }
+
+        val node = best
+        if (node != null) {
+            val r = android.graphics.Rect()
+            node.getBoundsInScreen(r)
+            DebugLog.d(TAG, "车机版放大镜候选 ${node.className} $r，按中心点击")
+            if (A11yBridge.click(node)) return true
+            if (A11yBridge.clickByGesture(r.centerX(), r.centerY())) return true
+        }
+
+        DebugLog.w(TAG, "顶部没找到候选，直接按比例点 (${targetX.toInt()}, ${targetY.toInt()})")
+        return A11yBridge.clickByGesture(targetX.toInt(), targetY.toInt())
     }
 
     /**

@@ -57,6 +57,10 @@ class SystemExecutor(
         data object Next : Command
         data object Previous : Command
         data object GoHome : Command
+        /** 取消静音并恢复音量 */
+        data object Unmute : Command
+        /** 把当前界面的无障碍节点树写进日志（适配不同车机/ROM 用） */
+        data object DumpTree : Command
         data object ExitNavigation : Command
         /** slot: 音乐 / 电影 / 倒车 */
         data class Trigger(val slot: String) : Command
@@ -110,6 +114,19 @@ class SystemExecutor(
             is Command.ShopSearch -> shopSearch(action, command.app, command.keyword)
             is Command.PlayPause -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, "已切换播放状态")
             is Command.GoHome -> goHome(action)
+            is Command.Unmute -> {
+                val am = audio()
+                val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                val target = (max * 0.3f).toInt().coerceIn(1, max)
+                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, target, AudioManager.FLAG_SHOW_UI)
+                DebugLog.d(TAG, "取消静音 → $target/$max")
+                ActionResult(action, true, "已取消静音，音量调到30%", "unmute → $target/$max")
+            }
+            is Command.DumpTree -> {
+                A11yBridge.dumpTree("NodeDump")
+                ActionResult(action, true, "已经把当前界面结构导出到日志了", "dumpTree done")
+            }
             is Command.ExitNavigation -> exitNavigation(action)
             is Command.Trigger -> trigger(action, command.slot)
             is Command.Next -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_NEXT, "已切到下一首")
@@ -736,6 +753,16 @@ class SystemExecutor(
             if (t.contains("调低") || t.contains("调小") || t.contains("小一点") ||
                 t.contains("低一点") || t.contains("小点声") || t.contains("降低")
             ) return Command.VolumeDown
+        }
+
+        // 导出节点树（调试用，说一句就在当前界面导出，不会离开目标 App）
+        if (t == "导出节点树" || t == "导出界面节点树" || t == "导出当前界面节点树" || t == "节点树") {
+            return Command.DumpTree
+        }
+
+        // 取消静音（静音后助手哑了，靠这条指令恢复）
+        if (t in setOf("取消静音", "解除静音", "恢复音量", "打开声音", "恢复声音")) {
+            return Command.Unmute
         }
 
         // 触发卡片：音乐 / 电影 / 倒车 + 各种说法

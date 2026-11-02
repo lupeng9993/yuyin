@@ -78,6 +78,7 @@ class SettingsRepository private constructor(context: Context) {
             cloudTimeoutSec = prefs[K.cloudTimeoutSec] ?: default.cloudTimeoutSec,
             cloudForceJson = prefs[K.cloudForceJson] ?: default.cloudForceJson,
             cloudAutoFallback = prefs[K.cloudAutoFallback] ?: default.cloudAutoFallback,
+            autoLearn = prefs[K.autoLearn] ?: default.autoLearn,
             chatFallbackEnabled = prefs[K.chatFallback] ?: default.chatFallbackEnabled,
             navEnabled = prefs[K.navEnabled] ?: default.navEnabled,
             homeCity = prefs[K.homeCity] ?: default.homeCity,
@@ -131,6 +132,7 @@ class SettingsRepository private constructor(context: Context) {
         m[K.cloudTimeoutSec] = s.cloudTimeoutSec
         m[K.cloudForceJson] = s.cloudForceJson
         m[K.cloudAutoFallback] = s.cloudAutoFallback
+        m[K.autoLearn] = s.autoLearn
         m[K.chatFallback] = s.chatFallbackEnabled
         m[K.navEnabled] = s.navEnabled
         m[K.homeCity] = s.homeCity
@@ -184,6 +186,7 @@ class SettingsRepository private constructor(context: Context) {
         val cloudTimeoutSec = intPreferencesKey("cloud_timeout_sec")
         val cloudForceJson = booleanPreferencesKey("cloud_force_json")
         val cloudAutoFallback = booleanPreferencesKey("cloud_auto_fallback")
+        val autoLearn = booleanPreferencesKey("auto_learn")
         val chatFallback = booleanPreferencesKey("chat_fallback")
         val navEnabled = booleanPreferencesKey("nav_enabled")
         val homeCity = stringPreferencesKey("home_city")

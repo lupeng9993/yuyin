@@ -441,13 +441,26 @@ class WakeService : Service() {
         execute(plan)
     }
 
+    /** 最近一次识别的原句（自动学习用） */
+    private var lastUtterance: String = ""
+
     /** 本地规则优先；未命中且云端已开才请求云端；云端失败按设置决定是否回退 */
     private suspend fun understand(text: String): ActionPlan? {
         lastUnderstandError = ""
+        lastUtterance = text
         RuleEngine.matchLocal(text)?.let { match ->
             DebugLog.d(TAG, "本地规则命中: ${match.plan.actions.size} 个动作")
             AppStateBus.onDebug(parseState = "本地规则命中")
             return match.plan
+        }
+
+        // 已学规则：本地规则没命中时先查学习库，命中就不再花钱走云端
+        if (settings.autoLearn) {
+            com.voiceassistant.nlu.LearnedRules.match(this, text)?.let { learned ->
+                DebugLog.d(TAG, "命中学过的规则，直接本地执行")
+                AppStateBus.onDebug(parseState = "已学规则命中")
+                return learned
+            }
         }
 
         if (!settings.cloudEnabled) {
@@ -498,6 +511,18 @@ class WakeService : Service() {
 
         reportOutcome(outcome)
         if (outcome.speech.isNotBlank()) speakSafely(outcome.speech)
+
+        // 用后即学：云端解析且全部执行成功，就把这句话记成模板，下次本地直接命中
+        if (settings.autoLearn &&
+            plan.source == ActionPlan.Source.CLOUD &&
+            !plan.isUnknown &&
+            outcome.allOk
+        ) {
+            val utterance = lastUtterance
+            if (utterance.isNotBlank()) {
+                com.voiceassistant.nlu.LearnedRules.learn(applicationContext, utterance, plan)
+            }
+        }
     }
 
     private fun reportOutcome(outcome: DispatchOutcome) {

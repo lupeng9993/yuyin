@@ -64,6 +64,8 @@ data class AppSettings(
     val cloudTimeoutSec: Int = 30,
     val cloudForceJson: Boolean = true,
     val cloudAutoFallback: Boolean = true,
+    /** 自动学习：云端解析成功执行后记成模板，下次本地直接命中 */
+    val autoLearn: Boolean = true,
     /** 匹配不到指令时，让大模型直接聊天/回答（纯播报，不执行动作） */
     val chatFallbackEnabled: Boolean = true,
 

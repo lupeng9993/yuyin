@@ -58,22 +58,45 @@ class SystemTtsEngine(
         if (text.isBlank()) return
         if (!init()) return
         val engine = tts ?: return
+
+        // 静音时临时抬高媒体音量，播完立刻恢复：
+        // 音乐还是静音的，但助手能说话（否则用户以为它坏了）
+        val am = context.getSystemService(android.media.AudioManager::class.java)
+        val before = am?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: -1
+        val max = am?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 0
+        val boosted = before == 0
+        if (boosted && am != null) {
+            val target = (max * 0.3f).toInt().coerceIn(1, max)
+            am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, target, 0)
+            DebugLog.d(TAG, "媒体静音中，临时抬到 $target/$max 播报")
+        }
+
         val id = "va-${utteranceId.incrementAndGet()}"
         suspendCancellableCoroutine<Unit> { cont ->
             engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) {
+                    restoreVolume()
                     if (cont.isActive) cont.resume(Unit)
                 }
 
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
+                    restoreVolume()
                     if (cont.isActive) cont.resume(Unit)
                 }
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
                     DebugLog.w(TAG, "播报失败 code=$errorCode")
+                    restoreVolume()
                     if (cont.isActive) cont.resume(Unit)
+                }
+
+                private fun restoreVolume() {
+                    if (boosted && am != null && before >= 0) {
+                        am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, before, 0)
+                        DebugLog.d(TAG, "播报结束，媒体音量恢复为 $before")
+                    }
                 }
             })
             engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
