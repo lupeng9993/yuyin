@@ -65,12 +65,9 @@ class WechatExecutor(private val context: Context) {
         }
         A11yBridge.click(searchEntry)
 
-        // 2. 输入联系人
-        val searchInput = awaitNode("搜索输入框", STEP_TIMEOUT) { findEditable(exclude = null) }
-            ?: return@withContext fail(action, "微信界面变化了，找不到搜索框", "editable 节点缺失")
-        if (!A11yBridge.setText(searchInput, contact)) {
-            return@withContext fail(action, "输入联系人失败", "ACTION_SET_TEXT 失败")
-        }
+        // 2. 输入联系人：所有可编辑节点挨个试，谁能写进去就用谁
+        val searchInput = typeIntoAnyEditable(contact, exclude = null)
+            ?: return@withContext fail(action, "搜索框写不进文字（SET_TEXT/粘贴/菜单粘贴都失败）", "无可用可编辑节点")
         delay(1500)
 
         // 3. 收集候选（排除搜索框自己）
@@ -109,23 +106,18 @@ class WechatExecutor(private val context: Context) {
             return@withContext fail(action, "点不开联系人「$matchedName」", "点击失败")
         }
 
-        // 5. 等一个「不是搜索框」的输入框 = 真的进了聊天
-        val chatInput = awaitNode("聊天输入框", STEP_TIMEOUT) { findEditable(exclude = searchInput) }
+        // 5. 输入消息：同样挨个试可编辑节点（排除搜索框）
+        val chatInput = typeIntoAnyEditable(message, exclude = searchInput)
             ?: return@withContext fail(
                 action,
-                "没进到和「$matchedName」的聊天界面，消息未发送",
-                "点击后仍未出现聊天输入框"
+                "没进到和「$matchedName」的聊天界面，或消息写不进去，未发送",
+                "点击后没有可写入的聊天输入框"
             )
-
-        if (!A11yBridge.setText(chatInput, message)) {
-            return@withContext fail(action, "输入消息失败", "ACTION_SET_TEXT 失败")
-        }
         delay(800)
 
+        // 只做记录，不再因为读不到内容就中止（微信节点文本经常滞后）
         val typed = chatInput.text?.toString().orEmpty()
-        if (typed.isBlank()) {
-            return@withContext fail(action, "消息没输进去，已中止发送", "输入框内容为空")
-        }
+        DebugLog.d(TAG, "输入框回读内容=${if (typed.isBlank()) "(空/读不到)" else typed}")
 
         // 6. 输入完成后才确认发送
         if (!confirm("给${matchedName}发「$message」，确认发送吗？")) {
@@ -200,6 +192,33 @@ class WechatExecutor(private val context: Context) {
         } ?: emptyList()
         if (list.isEmpty()) DebugLog.w(TAG, "等待「$label」超时")
         return list
+    }
+
+    /**
+     * 把所有可编辑节点挨个试写入，谁成功就用谁。
+     * 微信的分析：搜索框和聊天输入框都拒绝 SET_TEXT，逐个试 + 三种写入方式
+     * （SET_TEXT / ACTION_PASTE / 长按菜单粘贴）能覆盖更多机型。
+     */
+    private suspend fun typeIntoAnyEditable(
+        text: String,
+        exclude: AccessibilityNodeInfo?
+    ): AccessibilityNodeInfo? = withTimeoutOrNull(12_000) {
+        var result: AccessibilityNodeInfo? = null
+        while (result == null) {
+            val nodes = A11yBridge.allEditables(exclude)
+            // 已经有这段文字就直接用，绝不重复写
+            result = nodes.firstOrNull { A11yBridge.nodeHasText(it, text) }
+            if (result == null) {
+                for (node in nodes) {
+                    if (A11yBridge.setText(node, text)) {
+                        result = node
+                        break
+                    }
+                }
+            }
+            if (result == null) delay(POLL_INTERVAL)
+        }
+        result
     }
 
     private fun findEditable(exclude: AccessibilityNodeInfo?): AccessibilityNodeInfo? {

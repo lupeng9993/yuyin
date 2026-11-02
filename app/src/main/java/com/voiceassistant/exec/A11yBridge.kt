@@ -72,18 +72,41 @@ object A11yBridge {
         return true
     }
 
+    /**
+     * 所有可能的窗口根节点。
+     *
+     * 长按输入框弹出的「粘贴/全选」菜单通常是一个**独立窗口**，
+     * 只搜 rootInActiveWindow 是找不到它的——这很可能就是菜单粘贴失败的原因。
+     */
+    private fun roots(): List<AccessibilityNodeInfo> {
+        val svc = service() ?: return emptyList()
+        val list = ArrayList<AccessibilityNodeInfo>(4)
+        svc.rootInActiveWindow?.let { list.add(it) }
+        try {
+            svc.windows?.forEach { w ->
+                w?.root?.let { r -> if (list.none { it == r }) list.add(r) }
+            }
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "枚举窗口失败: ${e.message}")
+        }
+        return list
+    }
+
     /** 广度优先在整棵窗口树里找第一个匹配节点（栈式遍历，深度上限 40 层） */
     fun findNode(filter: TextFilter, root: AccessibilityNodeInfo? = null): AccessibilityNodeInfo? {
-        val start = root ?: service()?.rootInActiveWindow ?: return null
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(start)
-        var visited = 0
-        while (queue.isNotEmpty() && visited < 800) {
-            val node = queue.removeFirst()
-            visited++
-            if (filterMatches(node, filter)) return node
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.add(it) }
+        val starts = if (root != null) listOf(root) else roots()
+        if (starts.isEmpty()) return null
+        for (start in starts) {
+            val queue = ArrayDeque<AccessibilityNodeInfo>()
+            queue.add(start)
+            var visited = 0
+            while (queue.isNotEmpty() && visited < 800) {
+                val node = queue.removeFirst()
+                visited++
+                if (filterMatches(node, filter)) return node
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.add(it) }
+                }
             }
         }
         return null
@@ -145,22 +168,57 @@ object A11yBridge {
      * 失败就换「剪贴板 + ACTION_PASTE」。
      */
     fun setText(node: AccessibilityNodeInfo, text: String): Boolean {
+        // 已经写进去了就别再写一遍（重复写入会导致微信里出现两份文字）
+        if (nodeHasText(node, text)) {
+            DebugLog.d(TAG, "输入框已有这段文字，跳过写入")
+            return true
+        }
+
         node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
 
         val args = android.os.Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }
-        node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-        if (verifyText(node, text)) return true
-        DebugLog.w(TAG, "SET_TEXT 没生效，改用剪贴板粘贴")
 
-        if (pasteDirect(node, text) && verifyText(node, text)) return true
-        DebugLog.w(TAG, "ACTION_PASTE 没生效，改用长按菜单粘贴")
+        /*
+         * 这里**只信 performAction 的返回值**，不再拿回读校验当门槛。
+         *
+         * 教训：微信的输入框 SET_TEXT 其实生效了，但节点 text 属性不更新（或文字挂在子节点），
+         * 回读校验就会误判为失败，于是又贴一遍 → 变成两份内容。
+         * 只有 SET_TEXT 明确返回 false 时才降级到粘贴。
+         */
+        if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+            DebugLog.d(TAG, "SET_TEXT 已提交（不强行回读，微信节点文本会滞后）")
+            return true
+        }
+        DebugLog.w(TAG, "SET_TEXT 被拒绝，改用剪贴板粘贴")
 
-        if (pasteViaMenu(node, text) && verifyText(node, text)) return true
+        if (pasteDirect(node, text)) {
+            DebugLog.d(TAG, "ACTION_PASTE 已提交")
+            // 粘贴完清空剪贴板，免得下次粘到旧内容
+            clearClipboard()
+            return true
+        }
+        DebugLog.w(TAG, "ACTION_PASTE 被拒绝，改用长按菜单粘贴")
+
+        if (pasteViaMenu(node, text)) {
+            clearClipboard()
+            return true
+        }
 
         DebugLog.w(TAG, "三种输入方式都没写进去")
         return false
+    }
+
+    /** 用完清空剪贴板 */
+    fun clearClipboard() {
+        try {
+            val svc = service() ?: return
+            val cm = svc.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
+        } catch (e: Exception) {
+            // 忽略
+        }
     }
 
     /** 直接 ACTION_PASTE */
@@ -208,13 +266,27 @@ object A11yBridge {
         }
     }
 
+    /** 节点（或它的直接子节点）里是否已经包含这段文字 */
+    fun nodeHasText(node: AccessibilityNodeInfo, expected: String): Boolean {
+        val target = expected.trim()
+        if (target.isEmpty()) return true
+        if (node.text?.toString()?.contains(target) == true) return true
+        if (node.contentDescription?.toString()?.contains(target) == true) return true
+        val childCount = minOf(node.childCount, 6)
+        for (i in 0 until childCount) {
+            val child = node.getChild(i) ?: continue
+            if (child.text?.toString()?.contains(target) == true) return true
+            if (child.contentDescription?.toString()?.contains(target) == true) return true
+        }
+        return false
+    }
+
     /** 回读输入框内容确认真的写进去了（有些输入法/界面有延迟，重试几次） */
     private fun verifyText(node: AccessibilityNodeInfo, expected: String): Boolean {
         val target = expected.trim()
         if (target.isEmpty()) return true
         repeat(8) {
-            val current = node.text?.toString().orEmpty()
-            if (current.contains(target)) return true
+            if (nodeHasText(node, target)) return true
             android.os.SystemClock.sleep(60)
         }
         return false
@@ -222,6 +294,38 @@ object A11yBridge {
 
     fun back(): Boolean = service()?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) ?: false
     fun home(): Boolean = service()?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME) ?: false
+
+    /** 当前所有可编辑节点（按面积从大到小），用于「挨个试到能写进去为止」 */
+    fun allEditables(exclude: AccessibilityNodeInfo? = null): List<AccessibilityNodeInfo> {
+        val result = ArrayList<AccessibilityNodeInfo>()
+        for (start in roots()) {
+            val queue = ArrayDeque<AccessibilityNodeInfo>()
+            queue.add(start)
+            var visited = 0
+            while (queue.isNotEmpty() && visited < 700) {
+                val node = queue.removeFirst()
+                visited++
+                val excluded = exclude != null && node == exclude
+                if (!excluded && node.isEditable && node.isVisibleToUser) result.add(node)
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.add(it) }
+                }
+            }
+        }
+        // 同一个 EditText 可能出现在多个窗口里，按「类名 + 位置」去重；
+        // 面积大的更可能是真正的主输入框
+        return result
+            .distinctBy { n ->
+                val r = android.graphics.Rect()
+                n.getBoundsInScreen(r)
+                "${n.className}#${r.left},${r.top},${r.right},${r.bottom}"
+            }
+            .sortedByDescending { n ->
+                val r = android.graphics.Rect()
+                n.getBoundsInScreen(r)
+                r.width().toLong() * r.height()
+            }
+    }
 
     // ---------------- 截屏（API 30+ 无障碍自带能力，不需要额外授权） ----------------
 
