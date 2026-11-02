@@ -29,7 +29,7 @@ class Dispatcher(
 
     private val navigation = NavigationExecutor(context, settings)
     private val wechat = WechatExecutor(context)
-    private val system = SystemExecutor(context)
+    private val system = SystemExecutor(context, settings)
 
     suspend fun dispatch(plan: ActionPlan): DispatchOutcome {
         // 任何未知动作混入：整体不执行（协议铁律：不猜、不扩展）

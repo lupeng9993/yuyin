@@ -19,6 +19,13 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- 语音关闭指定应用（先回桌面再结束它的后台进程） -->
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <!-- 天气：定位当前城市（拒绝授权也不影响其它功能，会退回 IP/手动城市） -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 手电筒 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 提醒到点准时触发（Android 12+ 需用户在系统设置里单独允许） -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- 按应用名打开应用需要能看到已安装应用；本项目只本地安装、不上架 -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
@@ -99,6 +106,12 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- 提醒到点：弹通知 + 语音播报 -->
+        <receiver
+            android:name=".reminder.ReminderReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <!-- 只用于导出日志时把文件共享给其它应用 -->
         <provider

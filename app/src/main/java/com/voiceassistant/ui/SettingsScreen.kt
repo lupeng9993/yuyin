@@ -474,6 +474,13 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     enabled = settings.navEnabled
                 ) { Text("测试地点解析（大明湖景区）") }
 
+                FieldRow(
+                    "家所在城市（天气用）",
+                    settings.homeCity,
+                    "泰安"
+                ) { v -> vm.update { it.copy(homeCity = v) } }
+                Hint("说「今天天气」时：定位城市和这里不同 → 两个都播；相同 → 只播一次。天气复用上面这把高德 Key。")
+
                 Divider(Modifier.padding(vertical = 6.dp))
                 Text("微信发送", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 SwitchRow("启用微信发送", "依赖无障碍服务", settings.wechatEnabled) { v ->
@@ -560,6 +567,21 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         Text("应用详情")
                     }
                 }
+                OutlinedButton(onClick = {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                        runCatching {
+                            context.startActivity(
+                                Intent(
+                                    android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                    Uri.parse("package:${context.packageName}")
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    } else {
+                        infoMessage = "这个系统版本默认支持精确提醒，不用额外设置"
+                    }
+                }) { Text("允许精确提醒（Android 12+）") }
+                Hint("不打开的话，语音提醒可能晚几分钟。")
 
                 SwitchRow("悬浮小球", "常驻监听入口，也是 Android 14 后台启动麦克风的豁免条件", settings.floatBallEnabled) { v ->
                     vm.update { it.copy(floatBallEnabled = v) }

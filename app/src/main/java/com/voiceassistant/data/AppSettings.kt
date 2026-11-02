@@ -69,6 +69,8 @@ data class AppSettings(
 
     // ---- 分组三：技能 ----
     val navEnabled: Boolean = false,
+    /** 天气播报里的"家"城市，默认泰安 */
+    val homeCity: String = "泰安",
     val amapKey: String = "",
     /** 高德「安全密钥」(jscode)：2021-12-02 之后新申请的 Key 必填 */
     val amapSecurityKey: String = "",

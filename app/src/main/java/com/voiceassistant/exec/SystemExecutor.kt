@@ -7,24 +7,33 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.provider.MediaStore
 import android.view.KeyEvent
+import com.voiceassistant.data.AppSettings
 import com.voiceassistant.log.DebugLog
 import com.voiceassistant.nlu.VaAction
+import com.voiceassistant.reminder.Reminder
+import com.voiceassistant.reminder.ReminderScheduler
+import com.voiceassistant.reminder.ReminderStore
+import com.voiceassistant.util.TimeParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
+import java.util.Calendar
 
 /**
- * 系统与应用控制执行器：音量、截屏、打开应用、媒体播放控制。
- *
- * 只实现文档列出的能力，不做扩展（不做蓝牙、不做智能家居、不猜测用户意图）。
+ * 系统与应用控制执行器：音量、截屏、手电筒、时间日期、天气、提醒、打开应用、媒体播放。
  */
-class SystemExecutor(private val context: Context) {
+class SystemExecutor(
+    private val context: Context,
+    private val settings: AppSettings
+) {
 
     private companion object {
         const val TAG = "SystemExec"
@@ -33,6 +42,8 @@ class SystemExecutor(private val context: Context) {
     sealed interface Command {
         data object VolumeUp : Command
         data object VolumeDown : Command
+        data object VolumeMax : Command
+        data object VolumeMin : Command
         data class VolumeSet(val percent: Int) : Command
         data object Mute : Command
         data object Screenshot : Command
@@ -44,6 +55,15 @@ class SystemExecutor(private val context: Context) {
         data object Next : Command
         data object Previous : Command
         data object GoHome : Command
+        data object TorchOn : Command
+        data object TorchOff : Command
+        data object ClockNow : Command
+        data object DateNow : Command
+        data object WeekdayNow : Command
+        data class Weather(val dayIndex: Int) : Command
+        data class SetReminder(val at: Long, val label: String, val text: String) : Command
+        data object CancelReminders : Command
+        data object ListReminders : Command
         data object Unsupported : Command
     }
 
@@ -55,6 +75,17 @@ class SystemExecutor(private val context: Context) {
         when (command) {
             is Command.VolumeUp -> setVolumeAdjust(AudioManager.ADJUST_RAISE, action, "音量已调高")
             is Command.VolumeDown -> setVolumeAdjust(AudioManager.ADJUST_LOWER, action, "音量已调低")
+            is Command.VolumeMax -> setVolumePercent(action, 100, "音量已调到最大")
+            is Command.VolumeMin -> setVolumePercent(action, 0, "音量已调到最小")
+            is Command.TorchOn -> setTorch(action, true)
+            is Command.TorchOff -> setTorch(action, false)
+            is Command.ClockNow -> clockNow(action)
+            is Command.DateNow -> dateNow(action)
+            is Command.WeekdayNow -> weekdayNow(action)
+            is Command.Weather -> weather(action, command.dayIndex)
+            is Command.SetReminder -> setReminder(action, command)
+            is Command.CancelReminders -> cancelReminders(action)
+            is Command.ListReminders -> listReminders(action)
             is Command.Mute -> {
                 val am = audio()
                 try {
@@ -203,6 +234,153 @@ class SystemExecutor(private val context: Context) {
         } else {
             ActionResult(action, false, "没能回到桌面", "performGlobalAction 返回 false")
         }
+    }
+
+    private fun setVolumePercent(action: VaAction, percent: Int, speech: String): ActionResult {
+        val am = audio()
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val target = (max * percent / 100f).toInt().coerceIn(0, max)
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, target, AudioManager.FLAG_SHOW_UI)
+        return ActionResult(action, true, speech, "level=$target/$max")
+    }
+
+    /** 手电筒：找有闪光灯的摄像头，用 CameraManager 直接开关 */
+    private fun setTorch(action: VaAction, on: Boolean): ActionResult {
+        return try {
+            val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val id = cm.cameraIdList.firstOrNull { cam ->
+                cm.getCameraCharacteristics(cam)
+                    .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            } ?: return ActionResult(action, false, "这台设备没有闪光灯", "no flash unit")
+
+            cm.setTorchMode(id, on)
+            ActionResult(action, true, if (on) "手电筒已打开" else "手电筒已关闭", "camera=$id")
+        } catch (e: SecurityException) {
+            ActionResult(action, false, "需要相机权限才能控制手电筒", "SecurityException")
+        } catch (e: Exception) {
+            DebugLog.e(TAG, "手电筒失败", e)
+            ActionResult(action, false, "手电筒打不开，可能相机被占用", e.message.orEmpty())
+        }
+    }
+
+    private fun clockNow(action: VaAction): ActionResult {
+        val cal = Calendar.getInstance()
+        val h = cal.get(Calendar.HOUR_OF_DAY)
+        val m = cal.get(Calendar.MINUTE)
+        val speech = if (m == 0) "现在${h}点" else "现在${h}点${m}分"
+        return ActionResult(action, true, speech, "clock=$h:$m")
+    }
+
+    private fun dateNow(action: VaAction): ActionResult {
+        val cal = Calendar.getInstance()
+        val speech = "今天是${cal.get(Calendar.MONTH) + 1}月${cal.get(Calendar.DAY_OF_MONTH)}日，${weekdayName(cal)}"
+        return ActionResult(action, true, speech, "date")
+    }
+
+    private fun weekdayNow(action: VaAction): ActionResult =
+        ActionResult(action, true, "今天是${weekdayName(Calendar.getInstance())}", "weekday")
+
+    private fun weekdayName(cal: Calendar): String = when (cal.get(Calendar.DAY_OF_WEEK)) {
+        Calendar.MONDAY -> "星期一"
+        Calendar.TUESDAY -> "星期二"
+        Calendar.WEDNESDAY -> "星期三"
+        Calendar.THURSDAY -> "星期四"
+        Calendar.FRIDAY -> "星期五"
+        Calendar.SATURDAY -> "星期六"
+        else -> "星期日"
+    }
+
+    /**
+     * 天气播报：
+     * - 定位城市与"家"同城 → 只说一次
+     * - 不同城 → 先报定位城市，再报"您家X"
+     */
+    private suspend fun weather(action: VaAction, dayIndex: Int): ActionResult {
+        if (!settings.hasAmapKey) {
+            return ActionResult(action, false, "还没有配置高德 Key，查不了天气", "amapKey 为空")
+        }
+        val service = com.voiceassistant.weather.WeatherService(context, settings)
+        val homeName = settings.homeCity.trim().ifEmpty { "泰安" }
+        val home = service.cityByKeyword(homeName)
+            ?: return ActionResult(action, false, "没查到「$homeName」这个城市", "district 查询失败")
+
+        val located = service.currentCity()
+        val locatedCity = located ?: home
+        val homeDays = service.forecast(home)
+            ?: return ActionResult(action, false, "天气服务没返回数据，稍后再试", "forecast 为空")
+        val day = homeDays.getOrNull(dayIndex) ?: homeDays.last()
+
+        val dayWord = when (dayIndex) {
+            1 -> "明天"
+            2 -> "后天"
+            else -> "今天"
+        }
+        val homeShort = home.name.removeSuffix("市")
+        val homeSpeech = "$homeShort$dayWord${day.weatherText()}，${day.low} 到 ${day.high} 度"
+
+        val sameCity = locatedCity.name.removeSuffix("市") == homeShort
+        val speech = if (sameCity || located == null) {
+            homeSpeech
+        } else {
+            val locatedShort = locatedCity.name.removeSuffix("市")
+            val locatedDay = service.forecast(locatedCity)?.let { list ->
+                list.getOrNull(dayIndex) ?: list.lastOrNull()
+            }
+            val locatedSpeech = if (locatedDay != null) {
+                "当前城市为$locatedShort，$locatedShort$dayWord${locatedDay.weatherText()}，${locatedDay.low} 到 ${locatedDay.high} 度。"
+            } else {
+                "当前城市为$locatedShort。"
+            }
+            locatedSpeech + "您家$homeSpeech"
+        }
+        return ActionResult(
+            action, true, speech,
+            "home=$homeShort/${home.adcode} located=${locatedCity.name} day=$dayIndex"
+        )
+    }
+
+    private fun setReminder(action: VaAction, command: Command.SetReminder): ActionResult {
+        if (command.at <= System.currentTimeMillis()) {
+            return ActionResult(
+                action, false,
+                "没听清提醒时间，请再说一次，比如「8点提醒我开会」",
+                "时间未解析：${action.rawText}"
+            )
+        }
+        val reminder = Reminder(
+            id = ReminderStore.nextId(context),
+            triggerAt = command.at,
+            text = command.text,
+            label = command.label
+        )
+        val exact = ReminderScheduler.add(context, reminder)
+        val speech = buildString {
+            append("好的，")
+            append(reminder.label)
+            append("提醒你")
+            append(if (reminder.text == "提醒") "" else reminder.text)
+            if (!exact) append("。系统没给精确闹钟权限，可能会晚几分钟")
+        }
+        return ActionResult(action, true, speech, "id=${reminder.id} at=${reminder.triggerAt} exact=$exact")
+    }
+
+    private fun cancelReminders(action: VaAction): ActionResult {
+        val count = ReminderStore.load(context).size
+        ReminderScheduler.cancelAll(context)
+        val speech = if (count == 0) "现在没有提醒" else "已取消 $count 个提醒"
+        return ActionResult(action, true, speech, "cancelled=$count")
+    }
+
+    private fun listReminders(action: VaAction): ActionResult {
+        val list = ReminderScheduler.pending(context)
+        if (list.isEmpty()) return ActionResult(action, true, "现在没有待提醒的事", "empty")
+        val preview = list.take(3).joinToString("；") { "${it.label} ${it.text}" }
+        val speech = if (list.size <= 3) {
+            "还有 ${list.size} 个提醒：$preview"
+        } else {
+            "还有 ${list.size} 个提醒，最近的是：$preview"
+        }
+        return ActionResult(action, true, speech, "count=${list.size}")
     }
 
     private fun isForeground(pkg: String): Boolean = A11yBridge.currentWindowPackage() == pkg
@@ -389,9 +567,48 @@ class SystemExecutor(private val context: Context) {
             return Command.GoHome
         }
 
+        // 提醒（必须在「打开应用」之前，避免「提醒我打开空调」被当成打开应用）
+        if (t.contains("提醒")) {
+            if (t.contains("取消")) return Command.CancelReminders
+            if (t.contains("几个") || t.contains("多少") || t.contains("还有")) return Command.ListReminders
+            val parsed = TimeParser.parse(t)
+            if (parsed != null) {
+                val event = t.substringAfter("提醒我", "")
+                    .ifBlank { t.substringAfter("提醒", "") }
+                    .trim()
+                    .trimEnd('。', '，', '！', '!')
+                    .ifBlank { "提醒" }
+                return Command.SetReminder(parsed.at, parsed.label, event)
+            }
+            // 有"提醒"但没解析出时间：交给上层提示补一句
+            return Command.SetReminder(0L, "", "")
+        }
+
+        // 时间 / 日期 / 星期
+        if (Regex("^(?:现在)?(?:几点了?|什么时间|现在时间|报个时间)$").matches(t)) return Command.ClockNow
+        if (t.contains("星期几") || t.contains("周几") || t.contains("礼拜几")) return Command.WeekdayNow
+        if (t.contains("几号") || t.contains("日期") || t.contains("今天是几")) return Command.DateNow
+
+        // 天气
+        if (t.contains("天气")) {
+            val idx = when {
+                t.contains("后天") -> 2
+                t.contains("明天") -> 1
+                else -> 0
+            }
+            return Command.Weather(idx)
+        }
+
+        // 手电筒（必须在「打开应用」之前，否则会去找叫"手电筒"的 App）
+        if (t.contains("手电筒")) {
+            return if (t.contains("关") || t.contains("灭")) Command.TorchOff else Command.TorchOn
+        }
+
         // 音量
         if (t.contains("静音")) return Command.Mute
         if (t.contains("音量") || t.contains("声音")) {
+            if (t.contains("最大") || t.contains("最响") || t.contains("满")) return Command.VolumeMax
+            if (t.contains("最小") || t.contains("最低")) return Command.VolumeMin
             val percent = extractPercent(t)
             if (percent != null) return Command.VolumeSet(percent)
             if (t.contains("调高") || t.contains("调大") || t.contains("大一点") ||

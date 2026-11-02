@@ -29,6 +29,7 @@ object AppLauncher {
         "网易云音乐" to "com.netease.cloudmusic",
         "qq音乐" to "com.tencent.qqmusic",
         "酷狗" to "com.kugou.android",
+        "导航" to "com.autonavi.minimap",
         "哔哩哔哩" to "tv.danmaku.bili",
         "b站" to "tv.danmaku.bili",
         "抖音" to "com.ss.android.ugc.aweme",

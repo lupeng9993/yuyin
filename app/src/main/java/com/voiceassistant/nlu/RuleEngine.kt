@@ -105,6 +105,9 @@ object RuleEngine {
         val stripped = clause.replace(fillerPrefix, "").trim()
         val target = if (stripped.isEmpty()) clause else stripped
 
+        // 这些说法没有动词，但本地确实能处理（时间/日期/天气/提醒/手电筒）
+        if (isMiscCommand(target)) return VaAction(ActionType.OTHER, rawText = target)
+
         if (systemControl.matches(target) || volumeWord.matches(target)) {
             return VaAction(ActionType.OTHER, rawText = target)
         }
@@ -132,6 +135,16 @@ object RuleEngine {
      * 子句切分：先按标点切，再按连接词切。
      * 「然后」「接着」「再」这类连接词切开后要去掉，避免污染指令。
      */
+    /** 没有动词、但本地确实能处理的说法（时间/日期/天气/提醒/手电筒） */
+    private fun isMiscCommand(t: String): Boolean {
+        if (t.contains("天气")) return true
+        if (t.contains("几点") || t.contains("什么时间")) return true
+        if (t.contains("几号") || t.contains("星期几") || t.contains("周几") || t.contains("礼拜几")) return true
+        if (t.contains("手电筒")) return true
+        if (t.contains("提醒")) return true
+        return false
+    }
+
     fun splitClauses(text: String): List<String> {
         val byPunct = text.split('，', ',', '。', '；', ';', '！', '!', '\n')
             .map { it.trim() }

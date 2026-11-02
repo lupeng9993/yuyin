@@ -42,6 +42,10 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        // 天气要用定位拿当前城市；手电筒要用相机。拒绝也不影响其它功能。
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        permissions.add(Manifest.permission.CAMERA)
         permissionLauncher.launch(permissions.toTypedArray())
     }
 }

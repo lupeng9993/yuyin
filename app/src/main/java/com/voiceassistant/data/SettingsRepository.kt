@@ -80,6 +80,7 @@ class SettingsRepository private constructor(context: Context) {
             cloudAutoFallback = prefs[K.cloudAutoFallback] ?: default.cloudAutoFallback,
             chatFallbackEnabled = prefs[K.chatFallback] ?: default.chatFallbackEnabled,
             navEnabled = prefs[K.navEnabled] ?: default.navEnabled,
+            homeCity = prefs[K.homeCity] ?: default.homeCity,
             amapKey = SecureStore.decrypt(prefs[K.amapKeyEnc] ?: ""),
             amapSecurityKey = SecureStore.decrypt(prefs[K.amapSecurityEnc] ?: ""),
             navConfirm = prefs[K.navConfirm] ?: default.navConfirm,
@@ -125,6 +126,7 @@ class SettingsRepository private constructor(context: Context) {
         m[K.cloudAutoFallback] = s.cloudAutoFallback
         m[K.chatFallback] = s.chatFallbackEnabled
         m[K.navEnabled] = s.navEnabled
+        m[K.homeCity] = s.homeCity
         if (s.amapKey.isNotEmpty()) m[K.amapKeyEnc] = SecureStore.encrypt(s.amapKey) else m.remove(K.amapKeyEnc)
         if (s.amapSecurityKey.isNotEmpty()) m[K.amapSecurityEnc] = SecureStore.encrypt(s.amapSecurityKey)
         else m.remove(K.amapSecurityEnc)
@@ -170,6 +172,7 @@ class SettingsRepository private constructor(context: Context) {
         val cloudAutoFallback = booleanPreferencesKey("cloud_auto_fallback")
         val chatFallback = booleanPreferencesKey("chat_fallback")
         val navEnabled = booleanPreferencesKey("nav_enabled")
+        val homeCity = stringPreferencesKey("home_city")
         val amapKeyEnc = stringPreferencesKey("amap_key_enc")
         val amapSecurityEnc = stringPreferencesKey("amap_security_enc")
         val navConfirm = booleanPreferencesKey("nav_confirm")
