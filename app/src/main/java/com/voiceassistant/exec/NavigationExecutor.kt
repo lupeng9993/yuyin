@@ -40,7 +40,17 @@ class NavigationExecutor(
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    data class Place(val name: String, val address: String, val lng: Double, val lat: Double)
+    data class Place(
+        val name: String,
+        val address: String,
+        val lng: Double,
+        val lat: Double,
+        /** 与当前位置的直线距离（米）；拿不到定位时为 null */
+        val distanceMeters: Double? = null
+    ) {
+        val distanceText: String
+            get() = distanceMeters?.let { com.voiceassistant.util.LocationHelper.formatDistance(it) } ?: ""
+    }
 
     /** 一次搜索的结果：要么有地点，要么有错误信息 */
     private data class SearchResult(
@@ -70,7 +80,8 @@ class NavigationExecutor(
         if (result.error != null) {
             return@withContext ActionResult(action, false, "导航失败，${result.error}", result.detail)
         }
-        val places = result.places
+        // 补上直线距离并就近排序，方便用户按"第几个"选
+        val places = attachDistance(result.places)
         when {
             places.isEmpty() ->
                 ActionResult(action, false, "没有找到「$dest」这个地方", "POI 与地理编码都没有结果")
@@ -83,6 +94,21 @@ class NavigationExecutor(
                 else launch(action, picked)
             }
         }
+    }
+
+    /** 用当前定位给每个候选算直线距离，并按由近到远排序；拿不到定位就原样返回 */
+    private suspend fun attachDistance(places: List<Place>): List<Place> {
+        if (places.size <= 1) return places
+        val loc = com.voiceassistant.util.LocationHelper.lastLocation(context) ?: return places
+        return places
+            .map { p ->
+                p.copy(
+                    distanceMeters = com.voiceassistant.util.LocationHelper.distanceMeters(
+                        loc.latitude, loc.longitude, p.lat, p.lng
+                    )
+                )
+            }
+            .sortedBy { it.distanceMeters ?: Double.MAX_VALUE }
     }
 
     /** 设置页「测试地点解析」用 */

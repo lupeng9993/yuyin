@@ -32,7 +32,9 @@ import java.util.Calendar
  */
 class SystemExecutor(
     private val context: Context,
-    private val settings: AppSettings
+    private val settings: AppSettings,
+    /** 危险动作前的语音确认（退出导航等） */
+    private val confirm: suspend (String) -> Boolean = { true }
 ) {
 
     private companion object {
@@ -55,6 +57,9 @@ class SystemExecutor(
         data object Next : Command
         data object Previous : Command
         data object GoHome : Command
+        data object ExitNavigation : Command
+        /** slot: 音乐 / 电影 / 倒车 */
+        data class Trigger(val slot: String) : Command
         data object TorchOn : Command
         data object TorchOff : Command
         data object ClockNow : Command
@@ -88,17 +93,14 @@ class SystemExecutor(
             is Command.ListReminders -> listReminders(action)
             is Command.Mute -> {
                 val am = audio()
-                try {
-                    @Suppress("DEPRECATION")
-                    am.adjustSuggestedStreamVolume(
-                        AudioManager.ADJUST_MUTE,
-                        AudioManager.USE_DEFAULT_STREAM_TYPE,
-                        AudioManager.FLAG_SHOW_UI
-                    )
-                } catch (e: Exception) {
-                    am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, AudioManager.FLAG_SHOW_UI)
-                }
-                ActionResult(action, true, "已静音", "ADJUST_MUTE")
+                val before = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+                am.adjustStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.ADJUST_MUTE,
+                    AudioManager.FLAG_SHOW_UI
+                )
+                DebugLog.d(TAG, "STREAM_MUSIC $before → 静音")
+                ActionResult(action, true, "已静音", "mute STREAM_MUSIC")
             }
             is Command.VolumeSet -> {
                 val am = audio()
@@ -114,6 +116,8 @@ class SystemExecutor(
             is Command.ShopSearch -> shopSearch(action, command.app, command.keyword)
             is Command.PlayPause -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, "已切换播放状态")
             is Command.GoHome -> goHome(action)
+            is Command.ExitNavigation -> exitNavigation(action)
+            is Command.Trigger -> trigger(action, command.slot)
             is Command.Next -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_NEXT, "已切到下一首")
             is Command.Previous -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PREVIOUS, "已切到上一首")
             is Command.Unsupported -> ActionResult(action, false, "这个操作我还不支持", "未匹配到系统指令")
@@ -125,23 +129,35 @@ class SystemExecutor(
 
     private fun setVolumeAdjust(direction: Int, action: VaAction, speech: String): ActionResult {
         val am = audio()
-        // 用「建议流」：和音量键一样作用于当前正在出声的那个流，
-        // 这样在别的 App 里播着音乐时也能真的调它，而不是只影响本应用
-        try {
-            @Suppress("DEPRECATION")
-            am.adjustSuggestedStreamVolume(direction, AudioManager.USE_DEFAULT_STREAM_TYPE, AudioManager.FLAG_SHOW_UI)
-        } catch (e: Exception) {
-            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
-        }
-        return ActionResult(action, true, speech, "ADJUST_$direction")
+        val before = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        // 显式指定 STREAM_MUSIC：音乐/视频/游戏都在这条流上。
+        // 之前用「建议流」会按当前活跃音频选流，我们自己在播报时就会调到 assistant 流，
+        // 表现就是"只在语音助手内有用，别的 App 没反应"。
+        am.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+        val after = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        DebugLog.d(TAG, "STREAM_MUSIC $before → $after (max=$max)")
+        return ActionResult(action, true, speech, "level $before→$after/$max")
     }
 
     private fun mediaKey(action: VaAction, keyCode: Int, speech: String): ActionResult {
+        // 优先走 MediaController（需要「通知使用权」），它才真的能控制其它播放器
+        val handled = when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> com.voiceassistant.media.MediaBridge.playPause()
+            KeyEvent.KEYCODE_MEDIA_NEXT -> com.voiceassistant.media.MediaBridge.next()
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> com.voiceassistant.media.MediaBridge.previous()
+            else -> false
+        }
+        if (handled) {
+            return ActionResult(action, true, speech, "MediaController key=$keyCode")
+        }
+
         return try {
             val am = audio()
             am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
             am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
-            ActionResult(action, true, speech, "key=$keyCode")
+            val hint = if (com.voiceassistant.media.MediaBridge.hasController()) "" else "（控制播放需要在设置里开「通知使用权」）"
+            ActionResult(action, true, speech + hint, "dispatchMediaKeyEvent key=$keyCode")
         } catch (e: Exception) {
             DebugLog.e(TAG, "媒体按键失败", e)
             ActionResult(action, false, "没能控制播放", "dispatchMediaKeyEvent 失败")
@@ -383,6 +399,65 @@ class SystemExecutor(
         return ActionResult(action, true, speech, "count=${list.size}")
     }
 
+    /** 退出当前导航：确认后连按两次返回（导航 → 概览 → 主界面），**不关闭高德** */
+    private suspend fun exitNavigation(action: VaAction): ActionResult {
+        if (!A11yBridge.isReady()) {
+            return ActionResult(action, false, "退出导航需要先开启无障碍服务", "a11y off")
+        }
+        if (!confirm("确认退出当前导航吗？")) {
+            return ActionResult(action, false, "已取消", "用户取消退出导航")
+        }
+        val first = A11yBridge.back()
+        delay(700)
+        val second = A11yBridge.back()
+        delay(400)
+        return if (first || second) {
+            ActionResult(action, true, "已退出当前导航", "back x2 ($first/$second)")
+        } else {
+            ActionResult(action, false, "没能退出导航", "performGlobalAction(BACK) 失败")
+        }
+    }
+
+    /** 音乐 / 电影 / 倒车：启动设置里绑定的 App */
+    private fun trigger(action: VaAction, slot: String): ActionResult {
+        val pkg = when (slot) {
+            "音乐" -> settings.triggerMusic
+            "电影" -> settings.triggerMovie
+            else -> settings.triggerReverse
+        }
+        if (pkg.isBlank()) {
+            openSettingsPage()
+            return ActionResult(
+                action, false,
+                "还没设置「$slot」对应哪个应用，已经帮你打开设置页",
+                "unbound slot=$slot"
+            )
+        }
+        return try {
+            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                ?: return ActionResult(action, false, "「$slot」绑定的应用没装", "launchIntent null pkg=$pkg")
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            val label = AppLauncher.labelOf(context, pkg) ?: slot
+            ActionResult(action, true, "已打开$label", "pkg=$pkg")
+        } catch (e: Exception) {
+            DebugLog.e(TAG, "启动 $slot 失败", e)
+            ActionResult(action, false, "打不开「$slot」绑定的应用", e.message.orEmpty())
+        }
+    }
+
+    private fun openSettingsPage() {
+        try {
+            context.startActivity(
+                Intent(context, com.voiceassistant.ui.MainActivity::class.java)
+                    .putExtra("screen", "settings")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "打开设置页失败: ${e.message}")
+        }
+    }
+
     private fun isForeground(pkg: String): Boolean = A11yBridge.currentWindowPackage() == pkg
 
     /** 等目标应用彻底退到后台（最多 timeoutMs） */
@@ -617,6 +692,18 @@ class SystemExecutor(
             if (t.contains("调低") || t.contains("调小") || t.contains("小一点") ||
                 t.contains("低一点") || t.contains("小点声") || t.contains("降低")
             ) return Command.VolumeDown
+        }
+
+        // 触发卡片：音乐 / 电影 / 倒车（要在"关闭/退出"之前，避免被当成关应用）
+        when (t) {
+            "音乐", "放音乐", "听音乐", "来点音乐" -> return Command.Trigger("音乐")
+            "电影", "看电影", "看个电影", "来点电影" -> return Command.Trigger("电影")
+            "倒车", "倒车影像", "倒车模式", "倒车画面" -> return Command.Trigger("倒车")
+        }
+
+        // 退出导航（必须在"关闭/退出XXX"之前判断，否则会被当成关应用）
+        if (Regex("^(?:退出|结束|停止|关闭)(?:当前|正在|这个)?导航$").matches(t)) {
+            return Command.ExitNavigation
         }
 
         // 关闭应用

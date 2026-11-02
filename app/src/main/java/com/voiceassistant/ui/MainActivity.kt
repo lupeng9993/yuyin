@@ -18,6 +18,9 @@ import com.voiceassistant.ui.theme.VoiceAssistantTheme
 
 class MainActivity : ComponentActivity() {
 
+    /** 语音里"去设置选一下"会带 screen=settings 直接把设置页拉起来 */
+    private val screenState = mutableStateOf(Screen.HOME)
+
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             val mic = result[Manifest.permission.RECORD_AUDIO] ?: false
@@ -28,12 +31,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
         requestBasePermissions()
 
         setContent {
             VoiceAssistantTheme {
-                VaApp()
+                VaApp2(screen = screenState.value, onScreen = { screenState.value = it })
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.getStringExtra("screen") == "settings") {
+            screenState.value = Screen.SETTINGS
         }
     }
 
@@ -53,17 +68,19 @@ class MainActivity : ComponentActivity() {
 private enum class Screen { HOME, SETTINGS }
 
 @Composable
-private fun VaApp(vm: AppViewModel = viewModel()) {
-    var screen by remember { mutableStateOf(Screen.HOME) }
-
+private fun VaApp2(
+    screen: Screen,
+    onScreen: (Screen) -> Unit,
+    vm: AppViewModel = viewModel()
+) {
     when (screen) {
         Screen.HOME -> HomeScreen(
             vm = vm,
-            onOpenSettings = { screen = Screen.SETTINGS }
+            onOpenSettings = { onScreen(Screen.SETTINGS) }
         )
         Screen.SETTINGS -> SettingsScreen(
             vm = vm,
-            onBack = { screen = Screen.HOME }
+            onBack = { onScreen(Screen.HOME) }
         )
     }
 }

@@ -113,6 +113,17 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!-- 媒体控制：需要用户在系统设置里开启「通知使用权」 -->
+        <service
+            android:name=".media.MediaNotificationListener"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- 只用于导出日志时把文件共享给其它应用 -->
         <provider
             android:name="androidx.core.content.FileProvider"

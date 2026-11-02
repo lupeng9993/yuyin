@@ -67,7 +67,7 @@ class PlaceChoiceActivity : ComponentActivity() {
                         contentAlignment = Alignment.TopCenter
                     ) {
                         ChoiceList(
-                            places = places.map { it.name to it.address },
+                            places = places.map { Triple(it.name, it.address, it.distanceText) },
                             onPick = { index ->
                                 answered = true
                                 PlaceChoiceBridge.answer(index)
@@ -94,7 +94,7 @@ class PlaceChoiceActivity : ComponentActivity() {
 
 @Composable
 private fun ChoiceList(
-    places: List<Pair<String, String>>,
+    places: List<Triple<String, String, String>>,
     onPick: (Int) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -114,7 +114,7 @@ private fun ChoiceList(
 
         Spacer(Modifier.size(6.dp))
 
-        places.forEachIndexed { index, (name, address) ->
+        places.forEachIndexed { index, (name, address, distance) ->
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -154,6 +154,14 @@ private fun ChoiceList(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (distance.isNotBlank()) {
+                        Text(
+                            distance,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }

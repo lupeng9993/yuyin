@@ -492,7 +492,8 @@ class WakeService : Service() {
             context = applicationContext,
             settings = settings,
             confirm = { question -> askQuestion(question) },
-            choosePlace = { places -> askPlaceChoice(places) }
+            choosePlace = { places -> askPlaceChoice(places) },
+            chooseOption = { options -> askChoice(options) }
         ).dispatch(plan)
 
         reportOutcome(outcome)
@@ -543,22 +544,18 @@ class WakeService : Service() {
         return index?.let { places.getOrNull(it) }
     }
 
-    /** 念出候选并用语音挑一个，返回序号；没听清返回 null */
+    /** 只问"第几个"，不念地名；返回序号，没听清返回 null */
     private suspend fun listenForPlace(
         places: List<com.voiceassistant.exec.NavigationExecutor.Place>
     ): Int? {
-        val question = buildString {
-            append("找到${places.size}个地方：")
-            places.forEachIndexed { i, place -> append("${i + 1}，${place.name}。") }
-            append("说序号，或者直接说地名。")
-        }
+        val question = "找到${places.size}个结果，请问要去第几个？"
         state = State.SPEAKING
         speakSafely(question)
         delay(150)
         drainAudio()
 
         state = State.CONFIRMING
-        val samples = captureUtterance(8_000, requireSpeech = false)
+        val samples = captureUtterance(15_000, requireSpeech = false)
         if (samples.size < AudioCapture.SAMPLE_RATE * 300 / 1000) return null
         val answer = recognize(samples)
         DebugLog.d(TAG, "地点选择回答: $answer")
@@ -574,6 +571,34 @@ class WakeService : Service() {
         places.indexOfFirst { p ->
             answer.contains(p.name) || (p.name.length >= 2 && answer.contains(p.name.take(2)))
         }.let { if (it >= 0) return it }
+        return null
+    }
+
+    /** 通用「说第几个」选择（微信同名联系人等）；超时返回 null */
+    private suspend fun askChoice(options: List<String>): Int? {
+        if (options.isEmpty()) return null
+        if (options.size == 1) return 0
+
+        state = State.SPEAKING
+        speakSafely("有 ${options.size} 个匹配，说第几个？")
+        delay(150)
+        drainAudio()
+
+        state = State.CONFIRMING
+        val samples = captureUtterance(10_000, requireSpeech = false)
+        if (samples.size < AudioCapture.SAMPLE_RATE * 300 / 1000) return null
+        val answer = recognize(samples)
+        DebugLog.d(TAG, "选择回答: $answer")
+
+        Regex("[1-9]").find(answer)?.value?.toIntOrNull()?.let { n ->
+            if (n in 1..options.size) return n - 1
+        }
+        val chineseNumbers = mapOf('一' to 0, '二' to 1, '两' to 1, '三' to 2, '四' to 3, '五' to 4)
+        answer.firstOrNull { chineseNumbers.containsKey(it) }?.let { ch ->
+            chineseNumbers[ch]?.let { i -> if (i in options.indices) return i }
+        }
+        options.indexOfFirst { it.isNotBlank() && answer.contains(it) }
+            .let { if (it >= 0) return it }
         return null
     }
 

@@ -13,14 +13,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * 微信发送执行器（无障碍）。
  *
- * 踩过的坑（日志里"进不去聊天界面"就是它）：
- * 搜索框本身是个可编辑节点，输入完联系人后，**搜索框里就有这串字**，
- * 如果按文本找"结果"，会把搜索框自己点一遍，然后一直停在搜索结果页。
- *
- * 所以这里的做法是：
- * 1. 记住搜索框节点，后面所有"找结果""找输入框"都把它排除掉；
- * 2. 点结果后必须等到一个**不同于搜索框**的可编辑节点，才算进了聊天界面；
- * 3. 每一步都有超时和明确的失败原因，找不到就停，绝不盲点。
+ * 按真机反馈改的三处：
+ * 1. 微信停在上次的**聊天界面**时没有搜索入口 → 先 BACK 退回主列表再搜（最多 3 次）；
+ * 2. 搜到多个相似联系人 → **语音问"第几个"**，不盲点第一个；
+ * 3. 进聊天前二次核对，输入完成后再次确认才发送。
  */
 class WechatExecutor(private val context: Context) {
 
@@ -29,10 +25,14 @@ class WechatExecutor(private val context: Context) {
         const val WECHAT_PKG = "com.tencent.mm"
         const val STEP_TIMEOUT = 8_000L
         const val POLL_INTERVAL = 250L
+        const val MAX_BACK = 3
     }
 
-    suspend fun send(action: VaAction, confirm: suspend (String) -> Boolean): ActionResult =
-        withContext(Dispatchers.Main) {
+    suspend fun send(
+        action: VaAction,
+        confirm: suspend (String) -> Boolean,
+        choose: suspend (List<String>) -> Int?
+    ): ActionResult = withContext(Dispatchers.Main) {
         val contact = action.contact.trim()
         val message = action.message.trim()
 
@@ -42,78 +42,97 @@ class WechatExecutor(private val context: Context) {
             return@withContext fail(action, "需要先开启无障碍服务才能发微信", "无障碍未连接")
         }
 
-        // 1. 打开微信
         if (!launchWechat()) return@withContext fail(action, "没有安装微信", "未找到 $WECHAT_PKG")
         waitForPackage(WECHAT_PKG)
 
-        // 2. 点搜索
-        val searchEntry = awaitNode("微信搜索入口") {
-            A11yBridge.findNode(A11yBridge.TextFilter(contentDesc = "搜索"))
-                ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "搜索"))
+        // 1. 找搜索入口：停在聊天界面时先返回（最多退 3 次）
+        var searchEntry: AccessibilityNodeInfo? = null
+        for (attempt in 0..MAX_BACK) {
+            searchEntry = awaitNode("微信搜索入口", if (attempt == 0) 3000L else 2000L) {
+                A11yBridge.findNode(A11yBridge.TextFilter(contentDesc = "搜索"))
+                    ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "搜索"))
+            }
+            if (searchEntry != null) {
+                if (attempt > 0) DebugLog.d(TAG, "返回 $attempt 次后找到搜索入口")
+                break
+            }
+            DebugLog.d(TAG, "第 ${attempt + 1} 次没找到搜索入口，按返回")
+            A11yBridge.back()
+            delay(900)
         }
-        if (searchEntry != null) A11yBridge.click(searchEntry)
+        if (searchEntry == null) {
+            return@withContext fail(action, "找不到微信搜索入口", "连续返回 $MAX_BACK 次仍未出现搜索")
+        }
+        A11yBridge.click(searchEntry)
 
-        // 3. 找到搜索框并记住它（后面要排除）
-        val searchInput = awaitNode("搜索输入框") { findEditable(exclude = null) }
+        // 2. 输入联系人
+        val searchInput = awaitNode("搜索输入框", STEP_TIMEOUT) { findEditable(exclude = null) }
             ?: return@withContext fail(action, "微信界面变化了，找不到搜索框", "editable 节点缺失")
-
         if (!A11yBridge.setText(searchInput, contact)) {
             return@withContext fail(action, "输入联系人失败", "ACTION_SET_TEXT 失败")
         }
         delay(1500)
 
-        // 4. 点搜索结果：文本匹配，但**不能是搜索框本身**
-        val resultNode = awaitNode("联系人结果") { findResult(contact, exclude = searchInput) }
-        if (resultNode == null) {
+        // 3. 收集候选（排除搜索框自己）
+        val candidates = awaitNodes("联系人结果", 3000L) { findResults(contact, searchInput) }
+        if (candidates.isEmpty()) {
             A11yBridge.back()
             return@withContext fail(action, "未找到联系人「$contact」，消息未发送", "搜索结果为空（已排除搜索框）")
         }
 
-        // 进聊天之前先核对结果，避免发错人
-        val matchedName = resultNode.text?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: contact
+        // 4. 多个候选 → 语音问第几个
+        val pickedIndex: Int
+        if (candidates.size == 1) {
+            pickedIndex = 0
+        } else {
+            val names = candidates.map { it.first }
+            val idx = choose(names)
+            if (idx == null || idx !in candidates.indices) {
+                A11yBridge.back()
+                return@withContext fail(
+                    action,
+                    "找到 ${candidates.size} 个相近联系人，没有选择，已取消",
+                    "候选取消: $names"
+                )
+            }
+            pickedIndex = idx
+        }
+        val matchedName = candidates[pickedIndex].first
+        val resultNode = candidates[pickedIndex].second
+
         if (!confirm("搜索到「$matchedName」，是要发给TA吗？说确认或取消。")) {
             A11yBridge.back()
             return@withContext ActionResult(action, false, "已取消，没有进入聊天", "结果核对后用户取消")
         }
 
         if (!A11yBridge.click(resultNode)) {
-            return@withContext fail(action, "点不开联系人「$contact」", "点击失败")
+            return@withContext fail(action, "点不开联系人「$matchedName」", "点击失败")
         }
 
-        // 5. 等一个「不是搜索框」的输入框 = 真正进了聊天界面
-        val chatInput = awaitNode("聊天输入框") { findEditable(exclude = searchInput) }
-        if (chatInput == null) {
-            return@withContext fail(
+        // 5. 等一个「不是搜索框」的输入框 = 真的进了聊天
+        val chatInput = awaitNode("聊天输入框", STEP_TIMEOUT) { findEditable(exclude = searchInput) }
+            ?: return@withContext fail(
                 action,
-                "没进到和「$contact」的聊天界面，消息未发送",
+                "没进到和「$matchedName」的聊天界面，消息未发送",
                 "点击后仍未出现聊天输入框"
             )
-        }
 
         if (!A11yBridge.setText(chatInput, message)) {
             return@withContext fail(action, "输入消息失败", "ACTION_SET_TEXT 失败")
         }
         delay(800)
 
-        // 先确认消息真的落到了输入框里（不然回车会发出去个空消息）
         val typed = chatInput.text?.toString().orEmpty()
         if (typed.isBlank()) {
             return@withContext fail(action, "消息没输进去，已中止发送", "输入框内容为空")
         }
 
-        // 输入完成之后才做语音确认——顺序反过来更容易确认"发的就是这个"
+        // 6. 输入完成后才确认发送
         if (!confirm("给${matchedName}发「$message」，确认发送吗？")) {
             return@withContext ActionResult(action, false, "已取消发送", "用户在输入完成后取消")
         }
 
-        // 发送：有 Shizuku 就模拟回车（最贴近真人操作），否则点「发送」按钮
-        if (ShellExecutor.granted() && ShellExecutor.keyEvent(66)) {
-            delay(600)
-            DebugLog.d(TAG, "已用回车发送给 $contact")
-            return@withContext ActionResult(action, true, "消息已发送给$contact", "enter via shizuku, contact=$contact")
-        }
-
-        val sendButton = awaitNode("发送按钮") {
+        val sendButton = awaitNode("发送按钮", 4000L) {
             A11yBridge.findNode(A11yBridge.TextFilter(contentDesc = "发送"))
                 ?: A11yBridge.findNode(A11yBridge.TextFilter(exact = "发送"))
                 ?: A11yBridge.findNode(A11yBridge.TextFilter(contains = "发送"))
@@ -124,8 +143,8 @@ class WechatExecutor(private val context: Context) {
         }
 
         delay(600)
-        DebugLog.d(TAG, "消息已发送给 $contact")
-        ActionResult(action, true, "消息已发送给$contact", "contact=$contact")
+        DebugLog.d(TAG, "消息已发送给 $matchedName")
+        ActionResult(action, true, "消息已发送给$matchedName", "contact=$matchedName")
     }
 
     private fun fail(action: VaAction, speech: String, detail: String): ActionResult {
@@ -149,12 +168,12 @@ class WechatExecutor(private val context: Context) {
         }
     }
 
-    /** 轮询等待节点出现 */
     private suspend fun awaitNode(
         label: String,
+        timeoutMs: Long,
         finder: () -> AccessibilityNodeInfo?
     ): AccessibilityNodeInfo? {
-        val node = withTimeoutOrNull(STEP_TIMEOUT) {
+        val node = withTimeoutOrNull(timeoutMs) {
             var found: AccessibilityNodeInfo? = null
             while (found == null) {
                 found = finder()
@@ -166,7 +185,23 @@ class WechatExecutor(private val context: Context) {
         return node
     }
 
-    /** 可编辑节点；[exclude] 用于排除搜索框 */
+    private suspend fun awaitNodes(
+        label: String,
+        timeoutMs: Long,
+        finder: () -> List<Pair<String, AccessibilityNodeInfo>>
+    ): List<Pair<String, AccessibilityNodeInfo>> {
+        val list = withTimeoutOrNull(timeoutMs) {
+            var found: List<Pair<String, AccessibilityNodeInfo>> = emptyList()
+            while (found.isEmpty()) {
+                found = finder()
+                if (found.isEmpty()) delay(POLL_INTERVAL)
+            }
+            found
+        } ?: emptyList()
+        if (list.isEmpty()) DebugLog.w(TAG, "等待「$label」超时")
+        return list
+    }
+
     private fun findEditable(exclude: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         val root = A11yBridge.service()?.rootInActiveWindow ?: return null
         val queue = ArrayDeque<AccessibilityNodeInfo>()
@@ -175,8 +210,8 @@ class WechatExecutor(private val context: Context) {
         while (queue.isNotEmpty() && visited < 900) {
             val node = queue.removeFirst()
             visited++
-            val isExcluded = exclude != null && node == exclude
-            if (!isExcluded && node.isEditable && node.isVisibleToUser) return node
+            val excluded = exclude != null && node == exclude
+            if (!excluded && node.isEditable && node.isVisibleToUser) return node
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
@@ -184,41 +219,56 @@ class WechatExecutor(private val context: Context) {
         return null
     }
 
-    /**
-     * 联系人搜索结果：文本等于/包含联系人，排除搜索框，优先可点或父节点可点。
-     */
-    private fun findResult(contact: String, exclude: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-        val root = A11yBridge.service()?.rootInActiveWindow ?: return null
+    /** 联系人候选：文字完全相等优先，其次包含；排除搜索框和可编辑节点 */
+    private fun findResults(
+        contact: String,
+        exclude: AccessibilityNodeInfo?
+    ): List<Pair<String, AccessibilityNodeInfo>> {
+        val root = A11yBridge.service()?.rootInActiveWindow ?: return emptyList()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
         var visited = 0
-        var fallback: AccessibilityNodeInfo? = null
+
+        val exact = ArrayList<Pair<String, AccessibilityNodeInfo>>()
+        val loose = ArrayList<Pair<String, AccessibilityNodeInfo>>()
 
         while (queue.isNotEmpty() && visited < 900) {
             val node = queue.removeFirst()
             visited++
             val excluded = exclude != null && node == exclude
-            if (!excluded && !node.isEditable) {
+            if (!excluded && !node.isEditable && node.isVisibleToUser) {
                 val text = node.text?.toString()?.trim().orEmpty()
                 val desc = node.contentDescription?.toString()?.trim().orEmpty()
-                val matched = text == contact || desc == contact ||
-                    text.contains(contact) || desc.contains(contact)
-                if (matched && node.isVisibleToUser) {
-                    if (node.isClickable) return node
-                    var parent = node.parent
-                    var depth = 0
-                    while (parent != null && depth < 4) {
-                        if (parent.isClickable) return parent
-                        parent = parent.parent
-                        depth++
+                val label = text.ifBlank { desc }
+                if (label.isNotEmpty()) {
+                    val target = clickableTarget(node)
+                    when {
+                        text == contact || desc == contact -> exact.add(label to target)
+                        text.contains(contact) || desc.contains(contact) -> loose.add(label to target)
                     }
-                    if (fallback == null) fallback = node
                 }
             }
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
         }
-        return fallback
+
+        val pool = if (exact.isNotEmpty()) exact else loose
+        return pool.distinctBy { label -> label.first }
+            .distinctBy { pair -> System.identityHashCode(pair.second) }
+            .take(5)
+    }
+
+    /** 找到可点的祖先（点文字节点本身常常没反应） */
+    private fun clickableTarget(node: AccessibilityNodeInfo): AccessibilityNodeInfo {
+        if (node.isClickable) return node
+        var parent = node.parent
+        var depth = 0
+        while (parent != null && depth < 4) {
+            if (parent.isClickable) return parent
+            parent = parent.parent
+            depth++
+        }
+        return node
     }
 }

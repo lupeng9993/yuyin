@@ -19,7 +19,9 @@ class Dispatcher(
     /** 语音二次确认：把问题念给用户，返回 true 表示确认 */
     private val confirm: suspend (String) -> Boolean,
     /** 导航有多个候选地点时，让上层（语音/界面）挑一个 */
-    private val choosePlace: suspend (List<NavigationExecutor.Place>) -> NavigationExecutor.Place?
+    private val choosePlace: suspend (List<NavigationExecutor.Place>) -> NavigationExecutor.Place?,
+    /** 通用选择（微信同名联系人等）：返回下标，null 表示取消 */
+    private val chooseOption: suspend (List<String>) -> Int? = { null }
 ) {
 
     private companion object {
@@ -29,7 +31,7 @@ class Dispatcher(
 
     private val navigation = NavigationExecutor(context, settings)
     private val wechat = WechatExecutor(context)
-    private val system = SystemExecutor(context, settings)
+    private val system = SystemExecutor(context, settings, confirm)
 
     suspend fun dispatch(plan: ActionPlan): DispatchOutcome {
         // 任何未知动作混入：整体不执行（协议铁律：不猜、不扩展）
@@ -86,7 +88,7 @@ class Dispatcher(
 
     private suspend fun execute(action: VaAction): ActionResult = when (action.type) {
         ActionType.NAVIGATE -> navigation.execute(action, choosePlace)
-        ActionType.SEND_WECHAT -> wechat.send(action, confirm)
+        ActionType.SEND_WECHAT -> wechat.send(action, confirm, chooseOption)
         ActionType.OTHER -> system.execute(action)
         ActionType.UNKNOWN -> ActionResult(action, false, "无法识别该指令", action.reason)
     }

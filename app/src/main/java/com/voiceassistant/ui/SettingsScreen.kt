@@ -166,7 +166,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         )
                     }
                     Spacer(Modifier.size(12.dp))
-                    listOf("唤醒与音频", "云端解析", "技能管理", "系统与调试")
+                    listOf("唤醒与音频", "云端解析", "技能管理", "触发", "系统与调试")
                         .forEachIndexed { index, label ->
                             NavItem(label, selected = activeTag == index) { activeTag = index }
                         }
@@ -206,14 +206,14 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             // 窄屏才需要标签行；宽屏用左侧菜单
             if (!wide) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("唤醒", "云端", "技能", "系统").forEachIndexed { index, label ->
+                    listOf("唤醒", "云端", "技能", "触发", "系统").forEachIndexed { index, label ->
                         val selected = activeTag == index
                         val onClick: () -> Unit = {
                             activeTag = index
                             expandWake = index == 0
                             expandCloud = index == 1
                             expandSkills = index == 2
-                            expandSystem = index == 3
+                            expandSystem = index == 4
                         }
                         if (selected) {
                             Button(onClick = onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
@@ -393,6 +393,9 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 if (wide) activeTag == 1 else expandCloud,
                 onToggle = { if (wide) activeTag = 1 else expandCloud = !expandCloud }
             ) {
+                CloudProfileBar(settings) { transform -> vm.update(transform) }
+                Divider(Modifier.padding(vertical = 6.dp))
+
                 SwitchRow("启用云端解析", "只发送识别后的文本，绝不上传音频", settings.cloudEnabled) { v ->
                     vm.update { it.copy(cloudEnabled = v) }
                 }
@@ -544,12 +547,18 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 }
             }
 
-            // ---------------- 分组四 ----------------
+            // ---------------- 触发（音乐/电影/倒车） ----------------
+            if (!wide || activeTag == 3) {
+                TriggerGroupCard(settings) { transform -> vm.update(transform) }
+                Spacer(Modifier.size(2.dp))
+            }
+
+            // ---------------- 分组五 ----------------
             GroupCard(
                 "系统与调试",
                 "权限、日志、重置",
-                if (wide) activeTag == 3 else expandSystem,
-                onToggle = { if (wide) activeTag = 3 else expandSystem = !expandSystem }
+                if (wide) activeTag == 4 else expandSystem,
+                onToggle = { if (wide) activeTag = 4 else expandSystem = !expandSystem }
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = { SystemSettings.open(context, SystemSettings.overlayIntent(context)) }) {
@@ -582,6 +591,16 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     }
                 }) { Text("允许精确提醒（Android 12+）") }
                 Hint("不打开的话，语音提醒可能晚几分钟。")
+
+                OutlinedButton(onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }) { Text("开启通知使用权（控制音乐播放）") }
+                Hint("开启后「暂停 / 继续播放 / 上一首 / 下一首」才真的能控制其它音乐 App。")
 
                 SwitchRow("悬浮小球", "常驻监听入口，也是 Android 14 后台启动麦克风的豁免条件", settings.floatBallEnabled) { v ->
                     vm.update { it.copy(floatBallEnabled = v) }

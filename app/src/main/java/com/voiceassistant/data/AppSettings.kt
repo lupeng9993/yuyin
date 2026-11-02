@@ -87,7 +87,17 @@ data class AppSettings(
     val ttsSpeed: Float = 1.0f,
     val ttsVolume: Float = 1.0f,
 
-    // ---- 分组四：系统与调试 ----
+    // ---- 分组四：触发卡片（说"音乐/电影/倒车"时启动的 App）----
+    val triggerMusic: String = "",
+    val triggerMovie: String = "",
+    val triggerReverse: String = "",
+
+    // ---- 多套云端配置 ----
+    /** JSON 数组：保存的配置快照；当前生效的仍是上面 cloud* 那几个字段 */
+    val cloudProfilesJson: String = "",
+    val activeProfileId: String = "",
+
+    // ---- 分组五：系统与调试 ----
     val debugMode: Boolean = false,
     val bootAutoStart: Boolean = false,
     val floatBallEnabled: Boolean = false,

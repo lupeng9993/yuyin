@@ -94,6 +94,11 @@ class SettingsRepository private constructor(context: Context) {
             ttsSpeed = prefs[K.ttsSpeed] ?: default.ttsSpeed,
             ttsVolume = prefs[K.ttsVolume] ?: default.ttsVolume,
             debugMode = prefs[K.debugMode] ?: default.debugMode,
+            triggerMusic = prefs[K.triggerMusic] ?: default.triggerMusic,
+            triggerMovie = prefs[K.triggerMovie] ?: default.triggerMovie,
+            triggerReverse = prefs[K.triggerReverse] ?: default.triggerReverse,
+            cloudProfilesJson = prefs[K.cloudProfiles] ?: default.cloudProfilesJson,
+            activeProfileId = prefs[K.activeProfileId] ?: default.activeProfileId,
             bootAutoStart = prefs[K.bootAutoStart] ?: default.bootAutoStart,
             floatBallEnabled = prefs[K.floatBallEnabled] ?: default.floatBallEnabled,
             floatBallAlpha = prefs[K.floatBallAlpha] ?: default.floatBallAlpha
@@ -141,6 +146,11 @@ class SettingsRepository private constructor(context: Context) {
         m[K.ttsSpeed] = s.ttsSpeed
         m[K.ttsVolume] = s.ttsVolume
         m[K.debugMode] = s.debugMode
+        m[K.triggerMusic] = s.triggerMusic
+        m[K.triggerMovie] = s.triggerMovie
+        m[K.triggerReverse] = s.triggerReverse
+        m[K.cloudProfiles] = s.cloudProfilesJson
+        m[K.activeProfileId] = s.activeProfileId
         m[K.bootAutoStart] = s.bootAutoStart
         m[K.floatBallEnabled] = s.floatBallEnabled
         m[K.floatBallAlpha] = s.floatBallAlpha
@@ -186,6 +196,11 @@ class SettingsRepository private constructor(context: Context) {
         val ttsSpeed = floatPreferencesKey("tts_speed")
         val ttsVolume = floatPreferencesKey("tts_volume")
         val debugMode = booleanPreferencesKey("debug_mode")
+        val triggerMusic = stringPreferencesKey("trigger_music")
+        val triggerMovie = stringPreferencesKey("trigger_movie")
+        val triggerReverse = stringPreferencesKey("trigger_reverse")
+        val cloudProfiles = stringPreferencesKey("cloud_profiles")
+        val activeProfileId = stringPreferencesKey("active_profile_id")
         val bootAutoStart = booleanPreferencesKey("boot_auto_start")
         val floatBallEnabled = booleanPreferencesKey("float_ball_enabled")
         val floatBallAlpha = floatPreferencesKey("float_ball_alpha")
