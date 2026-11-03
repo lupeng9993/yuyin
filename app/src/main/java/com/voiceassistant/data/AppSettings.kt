@@ -105,12 +105,12 @@ data class AppSettings(
 
     // ---- 分组五：系统与调试 ----
     val debugMode: Boolean = false,
-    /** 日志自动上传地址（用户自己填，POST 日志包） */
-    val logUploadUrl: String = "",
+    /** 日志自动上传地址（默认指向本机服务端） */
+    val logUploadUrl: String = "http://192.168.51.18:8099/upload",
     /** 模型服务端地址；非空时下载模型不再走 GitHub */
-    val modelServerUrl: String = "",
+    val modelServerUrl: String = "http://192.168.51.18:8099/models",
     /** 云端配置同步地址（GET/POST /config） */
-    val syncUrl: String = "",
+    val syncUrl: String = "http://192.168.51.18:8099/config",
     /** 同步口令：用于加密 API Key，换机后同口令可解开 */
     val syncPass: String = "",
     val autoUploadLog: Boolean = false,
