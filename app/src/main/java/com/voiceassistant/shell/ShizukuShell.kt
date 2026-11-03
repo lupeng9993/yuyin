@@ -34,6 +34,10 @@ object ShizukuShell {
     private var boundArgs: Shizuku.UserServiceArgs? = null
     private var connection: ServiceConnection? = null
 
+    /** App 上下文，权限回调里要用它重新绑定 */
+    @Volatile
+    private var appContext: Context? = null
+
     private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
         DebugLog.d(TAG, "Shizuku binder 已就绪")
     }
@@ -46,10 +50,15 @@ object ShizukuShell {
 
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { code, grant ->
         DebugLog.d(TAG, "权限结果 code=$code grant=$grant")
+        if (grant == 0) {
+            // 刚授权成功，立刻绑定，免得等到下一条命令
+            appContext?.let { ensureService(it) }
+        }
     }
 
     /** 注册监听，App 启动时调用一次 */
     fun init(context: Context) {
+        appContext = context.applicationContext
         try {
             Shizuku.addBinderReceivedListenerSticky(binderReceivedListener)
             Shizuku.addBinderDeadListener(binderDeadListener)
@@ -92,7 +101,7 @@ object ShizukuShell {
         false
     }
 
-    /** 绑定 UserService（幂等，主线程执行） */
+    /** 绑定 UserService（幂等；已在主线程就直接绑，否则 post 到主线程） */
     fun ensureService(context: Context) {
         if (shell != null || binding) return
         if (!hasPermission()) {
@@ -103,39 +112,46 @@ object ShizukuShell {
             DebugLog.w(TAG, "Shizuku binder 未就绪，等它起来再绑")
             return
         }
-        main.post {
-            if (shell != null || binding) return@post
-            try {
-                binding = true
-                val args = Shizuku.UserServiceArgs(
-                    ComponentName(context.packageName, ShellService::class.java.name)
-                )
-                    .daemon(false)
-                    .processNameSuffix("shell")
-                    .debuggable(false)
-                    .version(1)
+        // 关键：之前在后台线程调用时收不到连接回调；已主线程就直接执行，避免多一层排队
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            doBind(context)
+        } else {
+            main.post { doBind(context) }
+        }
+    }
 
-                val conn = object : ServiceConnection {
-                    override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                        shell = IShellService.Stub.asInterface(binder)
-                        binding = false
-                        DebugLog.d(TAG, "ShellService 已连接")
-                    }
+    private fun doBind(context: Context) {
+        if (shell != null || binding) return
+        try {
+            binding = true
+            val args = Shizuku.UserServiceArgs(
+                ComponentName(context.packageName, ShellService::class.java.name)
+            )
+                .daemon(false)
+                .processNameSuffix("shell")
+                .debuggable(false)
+                .version(1)
 
-                    override fun onServiceDisconnected(name: ComponentName?) {
-                        shell = null
-                        binding = false
-                        DebugLog.w(TAG, "ShellService 已断开")
-                    }
+            val conn = object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                    shell = IShellService.Stub.asInterface(binder)
+                    binding = false
+                    DebugLog.d(TAG, "ShellService 已连接")
                 }
-                boundArgs = args
-                connection = conn
-                DebugLog.d(TAG, "bindUserService 已发起")
-                Shizuku.bindUserService(args, conn)
-            } catch (e: Throwable) {
-                binding = false
-                DebugLog.w(TAG, "绑定失败: ${e.message}")
+
+                override fun onServiceDisconnected(name: ComponentName?) {
+                    shell = null
+                    binding = false
+                    DebugLog.w(TAG, "ShellService 已断开")
+                }
             }
+            boundArgs = args
+            connection = conn
+            DebugLog.d(TAG, "bindUserService 已发起（主线程）")
+            Shizuku.bindUserService(args, conn)
+        } catch (e: Throwable) {
+            binding = false
+            DebugLog.w(TAG, "绑定失败: ${e.message}")
         }
     }
 

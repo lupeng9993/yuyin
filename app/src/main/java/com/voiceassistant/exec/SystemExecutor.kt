@@ -119,10 +119,14 @@ class SystemExecutor(
             is Command.PlayPause -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, "已切换播放状态")
             is Command.GoHome -> goHome(action)
             is Command.ShellDump -> {
-                val out = com.voiceassistant.shell.ShizukuShell.exec(
-                    "uiautomator dump /sdcard/va_ui.xml >/dev/null 2>&1; cat /sdcard/va_ui.xml",
-                    context
-                )
+                // 必须放到 IO 线程：exec 内部会阻塞等待 Shizuku 连接，
+                // 在主线程里等会把主线程堵死，绑定回调永远轮不到执行
+                val out = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.voiceassistant.shell.ShizukuShell.exec(
+                        "uiautomator dump /sdcard/va_ui.xml >/dev/null 2>&1; cat /sdcard/va_ui.xml",
+                        context
+                    )
+                }
                 DebugLog.d("ShellDump", "===== shell 输出开始（${out.length} 字符）=====")
                 out.chunked(900).forEach { DebugLog.d("ShellDump", it) }
                 DebugLog.d("ShellDump", "===== shell 输出结束 =====")

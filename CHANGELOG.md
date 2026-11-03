@@ -4,6 +4,15 @@
 > 算法：`versionCode = 主*10000 + 次*100 + 修订`（2.5.2 → 20502）。
 > 修 bug / 小调整 → 修订号 +1；加功能 → 次版本 +1；大改版 → 主版本 +1。
 
+## v2.5.8（修 Shizuku 绑定被主线程堵死）
+
+- 日志显示 15 秒等待期间 `绑定中=false`，且 `bindUserService 已发起` 出现在超时之后 →
+  是因为 `exec()` 用 `Thread.sleep` 阻塞了主线程，绑定的 Runnable 排不到
+- `ShellDump` 命令改到 `Dispatchers.IO` 执行，不再阻塞主线程
+- `ensureService` 已经在主线程时直接绑定，不再多绕一层 `Handler.post`
+- 权限刚批准（grant=0）时立即绑定，不用等下一条命令
+- 版本号 20508 / 2.5.8
+
 ## v2.5.7（修 Shizuku 服务连不上）
 
 - 日志显示「指令执行了但 ShellService 未就绪」，且没有任何绑定/连接记录 → 绑定时机不对
