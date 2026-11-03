@@ -4,6 +4,15 @@
 > 算法：`versionCode = 主*10000 + 次*100 + 修订`（2.5.2 → 20502）。
 > 修 bug / 小调整 → 修订号 +1；加功能 → 次版本 +1；大改版 → 主版本 +1。
 
+## v2.5.11（截图 + OCR：绕开自绘界面）
+
+- Shizuku 通道已打通（`ShellService 已连接`），但 `uiautomator dump` 对车机版微信只返回一个空节点
+  （`bounds="[0,0][0,0]"`）→ 微信是 SurfaceView 自绘，无障碍和 uiautomator 都读不到
+- 新增 `OcrHelper`：用 shell `screencap` 截屏到应用外部目录，再用 **ML Kit 离线中文 OCR** 认字
+- 新语音指令「**识别屏幕**」/「截图识别」：截屏 + 识别，把每行文字和坐标写进日志
+- 依赖：`com.google.mlkit:text-recognition-chinese:16.0.1`（离线，约 +10MB）
+- 版本号 20511 / 2.5.11
+
 ## v2.5.10（修 Shizuku UserService 写法）
 
 - 查官方文档确认：UserService 类**不能继承 `Service`**，必须直接继承 `IXxxInterface.Stub`，

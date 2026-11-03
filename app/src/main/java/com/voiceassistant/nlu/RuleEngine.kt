@@ -154,6 +154,8 @@ object RuleEngine {
         if (t.contains("节点") || t.contains("导出结构") || t.contains("导出界面结构")) return true
         // Shizuku 验证命令
         if (t.contains("执行命令")) return true
+        // OCR 验证
+        if (t.contains("识别屏幕") || t.contains("截图识别") || t.contains("识别界面")) return true
         if (t.contains("上传日志") || t == "传日志") return true
         // 触发卡片：音乐 / 电影 / 倒车
         if (t in setOf("音乐", "放音乐", "听音乐", "听歌", "来点音乐", "来首歌")) return true

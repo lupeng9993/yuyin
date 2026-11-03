@@ -59,6 +59,8 @@ class SystemExecutor(
         data object GoHome : Command
         /** 用 Shizuku 执行一条 shell 命令并写日志（验证能力用） */
         data object ShellDump : Command
+        /** 截图 + OCR，把屏幕上的文字和坐标写日志 */
+        data object OcrScreen : Command
         /** 上传日志到设置里填的地址 */
         data object UploadLog : Command
         /** 取消静音并恢复音量 */
@@ -138,8 +140,19 @@ class SystemExecutor(
                     "len=${out.length}"
                 )
             }
-            is Command.UploadLog -> {
-                val msg = com.voiceassistant.log.LogUploader.upload(context, settings.logUploadUrl)
+            is Command.OcrScreen -> {
+                val count = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.voiceassistant.shell.OcrHelper.captureAndLog(context)
+                }
+                val ok = count > 0
+                ActionResult(
+                    action,
+                    ok,
+                    if (ok) "识别到 $count 行文字，已写进日志" else "没识别到文字（截图失败或界面是空白）",
+                    "lines=$count"
+                )
+            }
+            is Command.UploadLog -> {                val msg = com.voiceassistant.log.LogUploader.upload(context, settings.logUploadUrl)
                 ActionResult(action, msg.startsWith("日志已上传"), msg, msg)
             }
             is Command.Unmute -> {
@@ -800,6 +813,11 @@ class SystemExecutor(
         }
 
         // Shizuku 能力验证：说「执行命令」跑一次 uiautomator dump
+        // 截图 + OCR 验证（看能不能认出微信界面的文字）
+        if (t.contains("识别屏幕") || t.contains("截图识别") || t.contains("识别界面")) {
+            return Command.OcrScreen
+        }
+
         if (t.contains("执行命令")) return Command.ShellDump
 
         // 导出节点树（调试用，说一句就在当前界面导出，不会离开目标 App）
