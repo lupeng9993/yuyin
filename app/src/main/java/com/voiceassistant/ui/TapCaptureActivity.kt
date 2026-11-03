@@ -1,101 +1,91 @@
 package com.voiceassistant.ui
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
+import com.voiceassistant.calib.CalibStore
 import com.voiceassistant.log.DebugLog
-import com.voiceassistant.ui.theme.VoiceAssistantTheme
 
 /**
- * 坐标校准页：全屏半透明，你在上面点一下「搜索图标」的位置，
- * 它就把坐标存起来，之后 OcrWechatFlow 直接用这个坐标点，不再靠猜。
+ * 校准页：**几乎全透明**，底下的目标软件完全可见，只在底部显示一句小字提示。
  *
- * 用 Activity 而不是悬浮窗：不需要「显示在其他应用上层」权限。
+ * 用法：一次可采多个点，按顺序提示「请点搜索图标」→「请点聊天输入框」→「校准完成」。
+ * 坐标存进 CalibStore（外部文件 + 私有配置），卸载重装不丢。
  */
 class TapCaptureActivity : ComponentActivity() {
 
+    private var names: List<String> = listOf(CalibStore.SEARCH)
+    private var index = 0
+    private var hint: TextView? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            VoiceAssistantTheme {
-                CaptureOverlay()
+
+        names = intent.getStringArrayListExtra(EXTRA_NAMES)?.takeIf { it.isNotEmpty() }
+            ?: listOf(CalibStore.SEARCH)
+        index = 0
+
+        // 用最朴素的 View，不引入 Compose，避免启动慢
+        val root = FrameLayout(this)
+        val label = TextView(this).apply {
+            text = hintFor(names[0])
+            textSize = 15f
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0x99000000.toInt())
+            setPadding(28, 14, 28, 14)
+        }
+        val lp = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            bottomMargin = 60
+        }
+        root.addView(label, lp)
+        hint = label
+
+        // 背景完全透明（alpha=0），点哪都能收到事件
+        root.setBackgroundColor(0x00000000)
+        setContentView(root)
+
+        root.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_UP) {
+                val x = event.rawX.toInt()
+                val y = event.rawY.toInt()
+                val name = names.getOrNull(index) ?: return@setOnTouchListener true
+                CalibStore.save(this, name, x, y)
+                DebugLog.d("Calib", "记录 $name = ($x, $y)")
+                index++
+                if (index >= names.size) {
+                    DebugLog.d("Calib", "校准完成")
+                    finish()
+                } else {
+                    hint?.text = hintFor(names[index])
+                }
             }
+            true
         }
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_UP) {
-            val x = event.rawX.toInt()
-            val y = event.rawY.toInt()
-            save(x, y)
-            DebugLog.d("Calib", "已记录点击坐标 ($x, $y)")
-            finish()
-            return true
-        }
-        return true
-    }
-
-    private fun save(x: Int, y: Int) {
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putInt(KEY_X, x)
-            .putInt(KEY_Y, y)
-            .apply()
+    private fun hintFor(name: String): String = when (name) {
+        CalibStore.SEARCH -> "请点一下「搜索图标」的位置"
+        CalibStore.INPUT -> "请点一下「聊天输入框」的位置"
+        CalibStore.SEND -> "请点一下「发送」按钮的位置"
+        else -> "请点一下「$name」的位置"
     }
 
     companion object {
-        const val PREFS = "va_calib"
-        const val KEY_X = "search_x"
-        const val KEY_Y = "search_y"
+        const val EXTRA_NAMES = "names"
 
-        /** 读取已校准的搜索图标坐标；没校准过返回 null */
-        fun load(context: Context): Pair<Int, Int>? {
-            val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val x = p.getInt(KEY_X, -1)
-            val y = p.getInt(KEY_Y, -1)
-            return if (x > 0 && y > 0) x to y else null
-        }
-    }
-}
-
-@Composable
-private fun CaptureOverlay() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xCC000000))
-            .padding(40.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            "请点一下「搜索图标」的位置",
-            style = MaterialTheme.typography.headlineMedium,
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center
-        )
-        Text(
-            "点完自动保存并退出，之后发微信会直接用这个坐标",
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color(0xFFBBBBBB),
-            modifier = Modifier.padding(top = 16.dp),
-            textAlign = TextAlign.Center
-        )
+        fun intent(context: Context, names: List<String>): Intent =
+            Intent(context, TapCaptureActivity::class.java)
+                .putStringArrayListExtra(EXTRA_NAMES, ArrayList(names))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 }

@@ -146,11 +146,17 @@ class SystemExecutor(
             }
             is Command.CalibrateSearch -> {
                 try {
+                    // 一次采两个点：搜索图标 + 聊天输入框
                     context.startActivity(
-                        Intent(context, com.voiceassistant.ui.TapCaptureActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        com.voiceassistant.ui.TapCaptureActivity.intent(
+                            context,
+                            listOf(
+                                com.voiceassistant.calib.CalibStore.SEARCH,
+                                com.voiceassistant.calib.CalibStore.INPUT
+                            )
+                        )
                     )
-                    ActionResult(action, true, "请在屏幕上点一下搜索图标的位置", "calib opened")
+                    ActionResult(action, true, "请在屏幕上依次点：搜索图标、聊天输入框", "calib opened")
                 } catch (e: Exception) {
                     DebugLog.w(TAG, "打开校准页失败: ${e.message}")
                     ActionResult(action, false, "打不开校准页", e.message.orEmpty())

@@ -96,8 +96,12 @@ class OcrWechatFlow(private val context: Context) {
         val rows = screen.filter {
             it.text.contains(contact) &&
                 it.cx > rightPane &&
-                it.cy > SCREEN_H / 8 &&
+                it.cy > 240 &&                       // 搜索框在顶部 140~200，结果行在 240 以下
                 it.cy < SCREEN_H * 0.92 &&
+                it.text.trim() != contact.trim() || (it.text.trim() == contact.trim() && it.cy > 240)
+        }.filter {
+            // 排除搜索框自身（里面就是我们要找的名字）与消息摘要行
+            it.text.trim() != contact.trim() &&
                 !it.text.contains(":") && !it.text.contains("：") && !it.text.contains("[")
         }
         if (rows.isEmpty()) {
@@ -121,7 +125,21 @@ class OcrWechatFlow(private val context: Context) {
         }
         DebugLog.d(TAG, "点击联系人行：${target.label}")
         tap(target.cx, target.cy)
-        delay(2000)
+        delay(1800)
+
+        // 校验是否真的进了聊天；没进就上下偏移再点一次
+        if (!inChatScreen()) {
+            DebugLog.w(TAG, "点完没进聊天，偏移重试")
+            tap(target.cx, target.cy - 25)
+            delay(1500)
+            if (!inChatScreen()) {
+                tap(target.cx, target.cy + 25)
+                delay(1500)
+            }
+        }
+        if (!inChatScreen()) {
+            return Result(false, "点了联系人但没进聊天，可能是坐标偏了，说「校准」可以重新标点", "not in chat after 3 taps")
+        }
 
         // 5. 聊天界面：点底部输入区再粘贴
         tapInputArea()
@@ -210,11 +228,11 @@ class OcrWechatFlow(private val context: Context) {
 
     /** 依次试标题右侧的候选点，直到 OCR 里出现「搜索」 */
     private suspend fun enterSearch(): Boolean {
-        // 优先用「校准」时你亲手点的位置
-        val saved = com.voiceassistant.ui.TapCaptureActivity.load(context)
+        // 优先用校准值（出厂默认就是 1920x1200 上的 849,151）
+        val saved = com.voiceassistant.calib.CalibStore.get(context, com.voiceassistant.calib.CalibStore.SEARCH)
         if (saved != null) {
-            DebugLog.d(TAG, "使用校准坐标 (${saved.first},${saved.second}) 点搜索")
-            tap(saved.first, saved.second)
+            DebugLog.d(TAG, "使用校准坐标 (${saved.x},${saved.y}) 点搜索")
+            tap(saved.x, saved.y)
             delay(1200)
             if (ocr().any { it.text.contains("搜索") }) {
                 DebugLog.d(TAG, "校准坐标有效，已进入搜索")
@@ -261,9 +279,22 @@ class OcrWechatFlow(private val context: Context) {
         withContext(Dispatchers.IO) { ShizukuShell.exec("input keyevent 4", context) }
     }
 
-    /** 点聊天底部输入区（右栏底部靠左中位置） */
+    /** 点聊天底部输入区：优先用校准点 */
     private suspend fun tapInputArea() {
-        tap(SCREEN_W * 3 / 4, (SCREEN_H * 0.88f).toInt())
+        val p = com.voiceassistant.calib.CalibStore.get(context, com.voiceassistant.calib.CalibStore.INPUT)
+        if (p != null) {
+            tap(p.x, p.y)
+        } else {
+            tap(SCREEN_W * 3 / 4, (SCREEN_H * 0.88f).toInt())
+        }
+    }
+
+    /** 当前是否已经在聊天界面：OCR 看得到「发送」或输入区特征 */
+    private suspend fun inChatScreen(): Boolean {
+        val screen = ocr()
+        return screen.any { it.text.trim() == "发送" } ||
+            screen.any { it.text.contains("发送") } ||
+            screen.any { it.text.contains("按住 说话") || it.text.contains("按住说话") }
     }
 
     /** 剪贴板写入后按 KEYCODE_PASTE(279) */

@@ -57,15 +57,48 @@ class ChatReader(private val context: Context) {
             .toList()
     }
 
-    /** 朗读最近几条，返回实际念出来的内容 */
+    /** 基线文件：上次朗读到的最后一行，存外部目录，重启也记得 */
+    private fun baselineFile(): java.io.File = java.io.File("/sdcard/VA-Models/read_baseline.txt")
+
+    private fun loadBaseline(): String = try {
+        val f = baselineFile()
+        if (f.isFile) f.readText().trim() else ""
+    } catch (e: Exception) {
+        ""
+    }
+
+    private fun saveBaseline(line: String) {
+        try {
+            val f = baselineFile()
+            f.parentFile?.mkdirs()
+            f.writeText(line)
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "写基线失败: ${e.message}")
+        }
+    }
+
+    /** 朗读最近几条（增量：只念上次之后新增的行），返回实际念出来的内容 */
     suspend fun readAloud(limit: Int = 5): String {
         val messages = readMessages()
         if (messages.isEmpty()) {
             return "没读到消息，可能不在聊天界面"
         }
-        val recent = messages.takeLast(limit)
+
+        val baseline = loadBaseline()
+        val newOnes = if (baseline.isBlank()) {
+            messages.takeLast(limit)
+        } else {
+            val idx = messages.indexOfLast { it.text == baseline }
+            if (idx >= 0 && idx < messages.size - 1) messages.drop(idx + 1) else messages.takeLast(limit)
+        }
+        if (newOnes.isEmpty()) {
+            return "没有新消息"
+        }
+
+        val recent = newOnes.takeLast(limit)
         val text = recent.joinToString("。") { it.text }
-        DebugLog.d(TAG, "朗读 ${recent.size} 条：$text")
+        DebugLog.d(TAG, "朗读 ${recent.size} 条（增量）：$text")
+        saveBaseline(recent.last().text)
 
         val tts = SystemTtsEngine(context, speed = 1.0f)
         try {
