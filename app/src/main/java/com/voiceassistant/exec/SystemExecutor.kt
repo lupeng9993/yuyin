@@ -778,7 +778,8 @@ class SystemExecutor(
         }
 
         // 导出节点树（调试用，说一句就在当前界面导出，不会离开目标 App）
-        if (t == "导出节点树" || t == "导出界面节点树" || t == "导出当前界面节点树" || t == "节点树") {
+        // 语音会把「树」识别成「数」，所以按「节点」判断，并兼容「导出结构」
+        if (t.contains("节点") || t.contains("导出结构") || t.contains("导出界面结构")) {
             return Command.DumpTree
         }
 
