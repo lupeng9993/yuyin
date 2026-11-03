@@ -135,7 +135,8 @@ object ShizukuShell {
                 .daemon(false)
                 .processNameSuffix("shell")
                 .debuggable(false)
-                .version(1)
+                .version(2)
+                .tag("va-shell")
 
             val conn = object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {

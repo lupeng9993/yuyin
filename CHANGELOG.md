@@ -4,6 +4,14 @@
 > 算法：`versionCode = 主*10000 + 次*100 + 修订`（2.5.2 → 20502）。
 > 修 bug / 小调整 → 修订号 +1；加功能 → 次版本 +1；大改版 → 主版本 +1。
 
+## v2.5.10（修 Shizuku UserService 写法）
+
+- 查官方文档确认：UserService 类**不能继承 `Service`**，必须直接继承 `IXxxInterface.Stub`，
+  由 Shizuku 反射实例化，也**不需要**在 Manifest 注册
+- `ShellService` 改为 `IShellService.Stub()`；移除 Manifest 里的 `<service>` 声明
+- `UserServiceArgs` 增加 `tag("va-shell")`（R8 会改类名，用稳定 tag），version 升到 2
+- 版本号 20510 / 2.5.10
+
 ## v2.5.9（修 Shizuku 服务绑定不到）
 
 - 日志显示 `绑定中=true` 持续 15 秒、`onServiceConnected` 始终不来 → Shizuku 以 shell 身份绑定被拒
