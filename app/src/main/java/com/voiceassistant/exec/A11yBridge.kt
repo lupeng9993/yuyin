@@ -312,10 +312,44 @@ object A11yBridge {
             return
         }
         DebugLog.d(tag, "===== 开始导出节点树 =====")
-        val roots = roots()
-        if (roots.isEmpty()) DebugLog.w(tag, "没有可用窗口")
-        roots.forEachIndexed { index, root ->
-            DebugLog.d(tag, "[窗口 $index] ${root.packageName} ${root.className}")
+        // 逐窗口导出并打印窗口类型：root 为 null 时能区分"敏感窗口被屏蔽"还是"真的没内容"
+        val windows = try {
+            svc.windows?.toList().orEmpty()
+        } catch (e: Exception) {
+            DebugLog.w(tag, "枚举窗口失败: ${e.message}")
+            emptyList()
+        }
+        if (windows.isEmpty()) DebugLog.w(tag, "没有可用窗口")
+
+        windows.forEachIndexed { index, w ->
+            val root = try {
+                w.root
+            } catch (e: Exception) {
+                null
+            }
+            val typeName = try {
+                when (w.type) {
+                    android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD -> "输入法"
+                    android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM -> "系统"
+                    android.view.accessibility.AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY -> "无障碍浮层"
+                    android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION -> "应用"
+                    else -> "其他(${w.type})"
+                }
+            } catch (e: Exception) {
+                "?"
+            }
+            val active = try {
+                w.isActive
+            } catch (e: Exception) {
+                false
+            }
+            DebugLog.d(
+                tag,
+                "[窗口 $index] pkg=${root?.packageName ?: "?"} cls=${root?.className ?: "null"} " +
+                    "type=$typeName active=$active rootNull=${root == null}"
+            )
+            if (root == null) return@forEachIndexed
+
             var visited = 0
             fun walk(node: AccessibilityNodeInfo, depth: Int) {
                 if (visited++ > 400 || depth > 30) return
