@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- 悬浮窗：保活入口 + 快捷菜单（需用户手动授予） -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Shizuku：拿到 shell 权限后执行 uiautomator / input 命令 -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <!-- 开机自启：设置页开关控制，默认关闭 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -45,8 +47,7 @@
         </intent>
     </queries>
 
-    <application
-        android:name=".App"
+    <application        android:name=".App"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"
@@ -83,6 +84,20 @@
             android:exported="false"
             android:foregroundServiceType="microphone"
             android:stopWithTask="false" />
+
+        <!-- Shizuku：以 shell 权限执行命令的服务（由 Shizuku 启动，不对外导出） -->
+        <service
+            android:name=".shell.ShellService"
+            android:exported="false" />
+
+        <!-- Shizuku 权限申请的 Provider（库自带） -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <!-- 无障碍执行器：只能由用户手动开启 -->
         <service

@@ -152,7 +152,8 @@ object RuleEngine {
         // 调试：说「导出节点树」时在当面界面导出无障碍结构
         // 语音常把「树」听成「数」，所以放宽到只要含「节点」就命中
         if (t.contains("节点") || t.contains("导出结构") || t.contains("导出界面结构")) return true
-        // 调试：上传日志
+        // Shizuku 验证命令
+        if (t.contains("执行命令")) return true
         if (t.contains("上传日志") || t == "传日志") return true
         // 触发卡片：音乐 / 电影 / 倒车
         if (t in setOf("音乐", "放音乐", "听音乐", "听歌", "来点音乐", "来首歌")) return true

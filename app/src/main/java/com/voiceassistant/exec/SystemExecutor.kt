@@ -57,6 +57,8 @@ class SystemExecutor(
         data object Next : Command
         data object Previous : Command
         data object GoHome : Command
+        /** 用 Shizuku 执行一条 shell 命令并写日志（验证能力用） */
+        data object ShellDump : Command
         /** 上传日志到设置里填的地址 */
         data object UploadLog : Command
         /** 取消静音并恢复音量 */
@@ -116,6 +118,22 @@ class SystemExecutor(
             is Command.ShopSearch -> shopSearch(action, command.app, command.keyword)
             is Command.PlayPause -> mediaKey(action, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, "已切换播放状态")
             is Command.GoHome -> goHome(action)
+            is Command.ShellDump -> {
+                val out = com.voiceassistant.shell.ShizukuShell.exec(
+                    "uiautomator dump /sdcard/va_ui.xml >/dev/null 2>&1; cat /sdcard/va_ui.xml",
+                    context
+                )
+                DebugLog.d("ShellDump", "===== shell 输出开始（${out.length} 字符）=====")
+                out.chunked(900).forEach { DebugLog.d("ShellDump", it) }
+                DebugLog.d("ShellDump", "===== shell 输出结束 =====")
+                val ok = out.isNotBlank() && !out.startsWith("ERR")
+                ActionResult(
+                    action,
+                    ok,
+                    if (ok) "命令已执行，输出已写进日志" else "命令没执行成功：${out.take(80)}",
+                    "len=${out.length}"
+                )
+            }
             is Command.UploadLog -> {
                 val msg = com.voiceassistant.log.LogUploader.upload(context, settings.logUploadUrl)
                 ActionResult(action, msg.startsWith("日志已上传"), msg, msg)
@@ -776,6 +794,9 @@ class SystemExecutor(
                 t.contains("低一点") || t.contains("小点声") || t.contains("降低")
             ) return Command.VolumeDown
         }
+
+        // Shizuku 能力验证：说「执行命令」跑一次 uiautomator dump
+        if (t.contains("执行命令")) return Command.ShellDump
 
         // 导出节点树（调试用，说一句就在当前界面导出，不会离开目标 App）
         // 语音会把「树」识别成「数」，所以按「节点」判断，并兼容「导出结构」

@@ -714,6 +714,26 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 )
 
                 Divider(Modifier.padding(vertical = 6.dp))
+                Text("Shizuku（临时测试，后期删除）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = {
+                        val granted = com.voiceassistant.shell.ShizukuShell.requestPermission()
+                        infoMessage = if (granted) {
+                            "Shizuku 已授权"
+                        } else {
+                            "如果弹出授权框请点允许；没弹出说明 Shizuku 没在运行"
+                        }
+                    }) { Text("授权 Shizuku") }
+
+                    OutlinedButton(onClick = {
+                        val running = com.voiceassistant.shell.ShizukuShell.isAvailable()
+                        val granted = com.voiceassistant.shell.ShizukuShell.hasPermission()
+                        infoMessage = "Shizuku 服务：${if (running) "运行中" else "未运行"}；权限：${if (granted) "已授权" else "未授权"}"
+                    }) { Text("检查状态") }
+                }
+                Hint("授权后说「执行命令」可以跑一次 uiautomator dump，用来验证能否读到微信界面。")
+
+                Divider(Modifier.padding(vertical = 6.dp))
                 Text("日志上传（临时测试，后期删除）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 FieldRow("上传地址", settings.logUploadUrl, "https://你的服务器/upload") { v ->
                     vm.update { it.copy(logUploadUrl = v) }

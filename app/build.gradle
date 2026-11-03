@@ -27,8 +27,8 @@ android {
         targetSdk 34
         // 版本号：每次改代码都要递增。
         // versionCode = 主*10000 + 次*100 + 修订（2.5.2 → 20502）
-        versionCode 20504
-        versionName "2.5.4"
+        versionCode 20505
+        versionName "2.5.5"
 
         // 只保留真机主流 ABI：ONNX 推理库按 ABI 打包，x86 只会白白增加体积
         ndk {
@@ -142,6 +142,10 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     // tar.bz2 解压（模型包格式），纯 Java 实现，Android 可用
     implementation 'org.apache.commons:commons-compress:1.26.2'
+
+    // Shizuku：以 shell 权限执行命令（uiautomator dump / input tap 等）
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
 
