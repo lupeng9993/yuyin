@@ -4,6 +4,15 @@
 > 算法：`versionCode = 主*10000 + 次*100 + 修订`（2.5.2 → 20502）。
 > 修 bug / 小调整 → 修订号 +1；加功能 → 次版本 +1；大改版 → 主版本 +1。
 
+## v2.5.5（接入 Shizuku：验证能否读到微信界面）
+
+- 加回 Shizuku 依赖（api + provider），新增 `ShellService`（以 shell 权限执行命令）与 `ShizukuShell` 封装
+- Manifest：`moe.shizuku.manager.permission.API_V23`、`ShizukuProvider`、`ShellService`
+- 新语音指令「**执行命令**」：跑一次 `uiautomator dump` 并把界面 XML 写进日志，
+  用来确认 shell 权限下能否读到被无障碍屏蔽的微信界面
+- 设置 → 系统与调试 新增「Shizuku（临时测试）」：授权 / 检查状态
+- 版本号 20505 / 2.5.5
+
 ## v2.5.4（导出节点树语音容错）
 
 - 「导出节点树」经常被识别成「导出节点数」，之前匹配严格所以不生效
