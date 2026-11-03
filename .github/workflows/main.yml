@@ -27,6 +27,28 @@ jobs:
       # 直接用运行器自带的 Android SDK。
       # 不要用 android-actions/setup-android@v3：它会执行 `sdkmanager tools`，
       # 新版 cmdline-tools 已没有 tools 包，必然失败。
+      # debug 签名固定：缓存 ~/.android/debug.keystore，避免每次 CI 生成新密钥导致无法覆盖安装
+      - name: Restore debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: debug-keystore-v1
+
+      - name: Ensure debug keystore exists
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            echo "==> 首次生成 debug keystore（之后会一直复用）"
+            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -keypass android -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10950 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          else
+            echo "==> 复用已有 debug keystore"
+          fi
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey | grep -E "SHA1:|SHA256:" || true
+
       - name: Install Android SDK packages
         run: |
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
@@ -73,6 +95,14 @@ jobs:
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      # 打印 APK 的真实签名指纹，便于确认是否仍可覆盖安装
+      - name: Print debug APK signing certificate
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
+          echo "APK: $APK"
+          APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | sort -V | tail -n 1)
+          "$APKSIGNER" verify --print-certs "$APK" || true
 
       - name: Build release APK
         run: gradle :app:assembleRelease --no-daemon --stacktrace
