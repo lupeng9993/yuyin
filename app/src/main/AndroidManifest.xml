@@ -85,10 +85,13 @@
             android:foregroundServiceType="microphone"
             android:stopWithTask="false" />
 
-        <!-- Shizuku：以 shell 权限执行命令的服务（由 Shizuku 启动，不对外导出） -->
+        <!-- Shizuku：以 shell 权限执行命令的服务。
+             Shizuku 用 shell 身份（不同 uid）来绑定，所以必须 exported=true；
+             独立进程 + 只接受 shell/root/本应用调用（见 ShellService） -->
         <service
             android:name=".shell.ShellService"
-            android:exported="false" />
+            android:exported="true"
+            android:process=":shell" />
 
         <!-- Shizuku 权限申请的 Provider（库自带） -->
         <provider

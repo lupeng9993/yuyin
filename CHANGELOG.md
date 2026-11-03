@@ -4,6 +4,14 @@
 > 算法：`versionCode = 主*10000 + 次*100 + 修订`（2.5.2 → 20502）。
 > 修 bug / 小调整 → 修订号 +1；加功能 → 次版本 +1；大改版 → 主版本 +1。
 
+## v2.5.9（修 Shizuku 服务绑定不到）
+
+- 日志显示 `绑定中=true` 持续 15 秒、`onServiceConnected` 始终不来 → Shizuku 以 shell 身份绑定被拒
+- `ShellService` 改为 `android:exported="true"` + `android:process=":shell"`（官方示例写法）
+- 安全兜底：`exec` 里校验调用方 uid，只允许 shell(2000)/root(0)/本应用
+- 增加日志：Shizuku 版本、`bindUserService 已返回，等待回调`
+- 版本号 20509 / 2.5.9
+
 ## v2.5.8（修 Shizuku 绑定被主线程堵死）
 
 - 日志显示 15 秒等待期间 `绑定中=false`，且 `bindUserService 已发起` 出现在超时之后 →

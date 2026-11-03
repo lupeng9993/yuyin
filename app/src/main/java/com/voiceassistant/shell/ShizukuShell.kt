@@ -63,7 +63,12 @@ object ShizukuShell {
             Shizuku.addBinderReceivedListenerSticky(binderReceivedListener)
             Shizuku.addBinderDeadListener(binderDeadListener)
             Shizuku.addRequestPermissionResultListener(permissionListener)
-            DebugLog.d(TAG, "Shizuku 监听已注册，可用=${isAvailable()} 权限=${hasPermission()}")
+            val version = try {
+                Shizuku.getVersion()
+            } catch (e: Throwable) {
+                -1
+            }
+            DebugLog.d(TAG, "Shizuku 监听已注册，版本=$version 可用=${isAvailable()} 权限=${hasPermission()}")
         } catch (e: Throwable) {
             DebugLog.w(TAG, "注册 Shizuku 监听失败: ${e.message}")
         }
@@ -149,6 +154,7 @@ object ShizukuShell {
             connection = conn
             DebugLog.d(TAG, "bindUserService 已发起（主线程）")
             Shizuku.bindUserService(args, conn)
+            DebugLog.d(TAG, "bindUserService 已返回，等待 onServiceConnected…")
         } catch (e: Throwable) {
             binding = false
             DebugLog.w(TAG, "绑定失败: ${e.message}")
