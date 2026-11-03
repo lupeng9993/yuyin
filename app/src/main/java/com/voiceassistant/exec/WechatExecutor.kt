@@ -51,6 +51,19 @@ class WechatExecutor(
         if (!launchWechat()) return@withContext fail(action, "没有安装微信", "未找到 $WECHAT_PKG")
         waitForPackage(WECHAT_PKG)
 
+        // 优先走「截图 + OCR + shell 点击」：车机版微信自绘界面，无障碍读不到节点
+        val ocrResult = OcrWechatFlow(context).send(
+            contact = contact,
+            message = message,
+            choose = choose,
+            listen = listen
+        )
+        if (ocrResult != null) {
+            DebugLog.d(TAG, "OCR 路径结果 ok=${ocrResult.ok} ${ocrResult.detail}")
+            return@withContext ActionResult(action, ocrResult.ok, ocrResult.speech, ocrResult.detail)
+        }
+        DebugLog.d(TAG, "OCR 路径不适用，回退无障碍路径")
+
         // 1. 把微信拉到前台并等它真正显示（车机版启动慢，等够时间）
         relaunchWechat()
         waitForPackage(WECHAT_PKG)
