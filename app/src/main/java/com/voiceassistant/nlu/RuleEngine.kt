@@ -156,6 +156,8 @@ object RuleEngine {
         if (t.contains("执行命令")) return true
         // OCR 验证
         if (t.contains("识别屏幕") || t.contains("截图识别") || t.contains("识别界面")) return true
+        // 坐标校准
+        if (t.contains("校准") || t.contains("记录位置") || t.contains("记录搜索位置")) return true
         if (t.contains("上传日志") || t == "传日志") return true
         // 触发卡片：音乐 / 电影 / 倒车
         if (t in setOf("音乐", "放音乐", "听音乐", "听歌", "来点音乐", "来首歌")) return true

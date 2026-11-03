@@ -61,6 +61,8 @@ class SystemExecutor(
         data object ShellDump : Command
         /** 截图 + OCR，把屏幕上的文字和坐标写日志 */
         data object OcrScreen : Command
+        /** 打开坐标校准页：用户点一下搜索图标，记录坐标 */
+        data object CalibrateSearch : Command
         /** 上传日志到设置里填的地址 */
         data object UploadLog : Command
         /** 取消静音并恢复音量 */
@@ -139,6 +141,18 @@ class SystemExecutor(
                     if (ok) "命令已执行，输出已写进日志" else "命令没执行成功：${out.take(80)}",
                     "len=${out.length}"
                 )
+            }
+            is Command.CalibrateSearch -> {
+                try {
+                    context.startActivity(
+                        Intent(context, com.voiceassistant.ui.TapCaptureActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    ActionResult(action, true, "请在屏幕上点一下搜索图标的位置", "calib opened")
+                } catch (e: Exception) {
+                    DebugLog.w(TAG, "打开校准页失败: ${e.message}")
+                    ActionResult(action, false, "打不开校准页", e.message.orEmpty())
+                }
             }
             is Command.OcrScreen -> {
                 val count = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -813,6 +827,11 @@ class SystemExecutor(
         }
 
         // Shizuku 能力验证：说「执行命令」跑一次 uiautomator dump
+        // 校准搜索图标位置
+        if (t.contains("校准") || t.contains("记录位置") || t.contains("记录搜索位置")) {
+            return Command.CalibrateSearch
+        }
+
         // 截图 + OCR 验证（看能不能认出微信界面的文字）
         if (t.contains("识别屏幕") || t.contains("截图识别") || t.contains("识别界面")) {
             return Command.OcrScreen

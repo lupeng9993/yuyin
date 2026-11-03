@@ -122,6 +122,13 @@
             </intent-filter>
         </receiver>
 
+        <!-- 坐标校准页：点一下就能记录搜索图标的位置 -->
+        <activity
+            android:name=".ui.TapCaptureActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- 调音量时短暂闪一下的透明界面：让系统认为应用在前台，才能改音量 -->
         <activity
             android:name=".ui.VolumeBurstActivity"

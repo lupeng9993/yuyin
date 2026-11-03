@@ -206,6 +206,19 @@ class OcrWechatFlow(private val context: Context) {
 
     /** 依次试标题右侧的候选点，直到 OCR 里出现「搜索」 */
     private suspend fun enterSearch(): Boolean {
+        // 优先用「校准」时你亲手点的位置
+        val saved = com.voiceassistant.ui.TapCaptureActivity.load(context)
+        if (saved != null) {
+            DebugLog.d(TAG, "使用校准坐标 (${saved.first},${saved.second}) 点搜索")
+            tap(saved.first, saved.second)
+            delay(1200)
+            if (ocr().any { it.text.contains("搜索") }) {
+                DebugLog.d(TAG, "校准坐标有效，已进入搜索")
+                return true
+            }
+            DebugLog.w(TAG, "校准坐标没进搜索，继续用候选点试")
+        }
+
         val screen = ocr()
         val title = screen.firstOrNull { it.text.contains("微信") && it.cy < SCREEN_H / 4 }
         val baseY = title?.cy ?: 160
