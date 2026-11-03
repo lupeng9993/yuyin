@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
