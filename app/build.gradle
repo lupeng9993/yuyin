@@ -25,9 +25,10 @@ android {
         applicationId "com.voiceassistant"
         minSdk 26
         targetSdk 34
-        // 版本号从 2.5.1 起；versionCode 用 主*10000 + 次*100 + 修订，便于比较大小
-        versionCode 20501
-        versionName "2.5.1"
+        // 版本号：每次改代码都要递增。
+        // versionCode = 主*10000 + 次*100 + 修订（2.5.2 → 20502）
+        versionCode 20502
+        versionName "2.5.2"
 
         // 只保留真机主流 ABI：ONNX 推理库按 ABI 打包，x86 只会白白增加体积
         ndk {
