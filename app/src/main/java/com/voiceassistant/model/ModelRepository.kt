@@ -27,7 +27,34 @@ object ModelRepository {
 
     private const val TAG = "ModelRepo"
 
-    fun root(context: Context): File = File(context.filesDir, "models").apply { mkdirs() }
+    /** 外部模型目录：卸载重装后仍然保留（需要「所有文件访问权限」） */
+    private const val EXTERNAL_ROOT = "/sdcard/VA-Models"
+
+    /** 是否已经拿到「所有文件访问权限」 */
+    fun hasExternalPermission(): Boolean = try {
+        android.os.Environment.isExternalStorageManager()
+    } catch (e: Throwable) {
+        false
+    }
+
+    /**
+     * 模型根目录。
+     *
+     * 有「所有文件访问权限」时用 /sdcard/VA-Models —— 卸载重装模型还在；
+     * 没有权限就退回私有目录（卸载会丢），保证功能不受影响。
+     */
+    fun root(context: Context): File {
+        val external = File(EXTERNAL_ROOT)
+        val usable = hasExternalPermission() &&
+            (external.exists() || external.mkdirs())
+        val base = if (usable) external else File(context.filesDir, "models")
+        base.mkdirs()
+        if (usable) DebugLog.d(TAG, "模型根目录（外部，卸载不丢）: ${base.absolutePath}")
+        return base
+    }
+
+    /** 当前实际使用的模型根目录，供界面显示 */
+    fun rootPath(context: Context): String = root(context).absolutePath
 
     fun dir(context: Context, kind: ModelKind, name: String = ""): File {
         val base = File(root(context), kind.dir).apply { mkdirs() }

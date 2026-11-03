@@ -29,6 +29,8 @@ class Dispatcher(
     private companion object {
         const val TAG = "Dispatcher"
         const val ACTION_TIMEOUT = 30_000L
+        /** 微信要走截图+OCR+多轮追问，单独放宽 */
+        const val WECHAT_TIMEOUT = 180_000L
     }
 
     private val navigation = NavigationExecutor(context, settings)
@@ -76,9 +78,12 @@ class Dispatcher(
                 }
             }
 
-            val result = withTimeoutOrNull(ACTION_TIMEOUT) { execute(action) }
+            // 微信流程包含多次截图/OCR 和多轮语音追问（每轮 6 秒），
+            // 30 秒必然不够，单独给 180 秒
+            val timeout = if (action.type == ActionType.SEND_WECHAT) WECHAT_TIMEOUT else ACTION_TIMEOUT
+            val result = withTimeoutOrNull(timeout) { execute(action) }
             if (result == null) {
-                results.add(ActionResult(action, false, "操作超时", "30 秒内未完成"))
+                results.add(ActionResult(action, false, "操作超时", "${timeout / 1000} 秒内未完成"))
             } else {
                 results.add(result)
             }

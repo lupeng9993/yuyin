@@ -90,15 +90,19 @@ class OcrWechatFlow(private val context: Context) {
         delay(1500)
         screen = ocr()
 
-        // 4. 结果里找联系人（排除搜索框本身和底部 tab）
+        // 4. 结果里找联系人：**只认右栏**（搜索框与结果都在右栏，左栏是聊天列表）
+        //    并排除消息摘要行（带冒号或方括号的那种）
+        val rightPane = SCREEN_W / 2
         val rows = screen.filter {
             it.text.contains(contact) &&
-                it.cy > SCREEN_H / 6 &&
-                it.cy < SCREEN_H * 0.9
+                it.cx > rightPane &&
+                it.cy > SCREEN_H / 8 &&
+                it.cy < SCREEN_H * 0.92 &&
+                !it.text.contains(":") && !it.text.contains("：") && !it.text.contains("[")
         }
         if (rows.isEmpty()) {
             back()
-            return Result(false, "没找到联系人「$contact」", "no ocr row matched")
+            return Result(false, "没找到联系人「$contact」", "no right-pane row matched")
         }
 
         val exact = rows.filter { it.text.trim() == contact }
