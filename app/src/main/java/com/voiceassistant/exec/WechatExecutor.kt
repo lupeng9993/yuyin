@@ -194,7 +194,7 @@ class WechatExecutor(
             }
             if (said.isNotEmpty()) {
                 body = if (body.isBlank()) said else "$body $said"
-                if (!clearAndType(body, exclude = searchInput)) {
+                if (clearAndType(body, exclude = searchInput) == null) {
                     DebugLog.w(TAG, "追加内容写入失败")
                 }
                 delay(400)
@@ -216,7 +216,7 @@ class WechatExecutor(
         // 8. 校验：右栏里出现这条消息才算真发出去
         val appeared = messageAppears(body)
         DebugLog.d(TAG, "发送复核 appeared=$appeared send=$sendLevel")
-        return ActionResult(
+        return@withContext ActionResult(
             action,
             appeared,
             if (appeared) "已发送给$matchedName" else "点了发送，但没看到消息，请确认一下",
