@@ -51,53 +51,43 @@ class WechatExecutor(
         if (!launchWechat()) return@withContext fail(action, "没有安装微信", "未找到 $WECHAT_PKG")
         waitForPackage(WECHAT_PKG)
 
-        // 1. 找搜索入口。关键：**只在"不在列表页"时才按返回**
-        //    之前无脑连按 4 次返回，把微信整个退到桌面，后面点什么都点不到。
-        var searchEntry: AccessibilityNodeInfo? = null
-        for (attempt in 0..MAX_BACK) {
-            searchEntry = awaitNode("微信搜索入口", if (attempt == 0) 2500L else 1500L) { findSearchEntry() }
-            if (searchEntry != null) {
-                if (attempt > 0) DebugLog.d(TAG, "返回 $attempt 次后找到搜索入口")
-                break
-            }
+        // 1. 把微信拉到前台并等它真正显示（车机版启动慢，等够时间）
+        relaunchWechat()
+        waitForPackage(WECHAT_PKG)
+
+        // 2. 进搜索：不依赖"找到搜索入口节点"，直接按坐标点放大镜，
+        //    用「右栏出现输入框」作为成功判据；按返回前必须确认在聊天页。
+        var entered = false
+        var backs = 0
+        for (attempt in 0..2) {
             if (!inWechatWindow()) {
-                // 不在微信里就绝不按返回（之前就是这样把微信退掉的）
-                DebugLog.w(TAG, "当前不在微信（${A11yBridge.currentWindowPackage()}），重新拉起")
+                DebugLog.w(TAG, "不在微信（${A11yBridge.currentWindowPackage()}），重新拉起并等待")
                 relaunchWechat()
-                delay(1800)
+                waitForPackage(WECHAT_PKG)
                 continue
             }
-            if (isOnMainList()) {
-                DebugLog.d(TAG, "已在微信列表页，停止按返回，改用图标定位")
-                break
+
+            // 停在聊天页（有输入框且没有列表 tab）→ 只按一次返回，等够 2 秒
+            if (hasEditable() && !isOnMainList() && backs < 2) {
+                backs++
+                DebugLog.d(TAG, "看起来在聊天页，按返回回列表（第 $backs 次）")
+                A11yBridge.back()
+                delay(2000)
+                continue
             }
-            DebugLog.d(TAG, "不在列表页，按返回（第 ${attempt + 1} 次）")
-            A11yBridge.back()
-            delay(800)
-        }
 
-        // 2. 点进去并**校验真的进了搜索**（有可编辑节点才算成功）
-        var entered = false
-        if (searchEntry != null) {
-            A11yBridge.click(searchEntry)
-            delay(900)
-            entered = hasEditable()
-            if (entered) DebugLog.d(TAG, "已进入微信搜索页")
-        }
-
-        if (!entered) {
-            // 车机版：搜索是纯放大镜图标，按布局点；点完校验，没中换个偏移再来
-            for (offset in listOf(0, -16, 16, -32)) {
-                DebugLog.w(TAG, "按布局点放大镜（偏移 $offset dp）")
+            for (offset in listOf(0, -16, 16)) {
+                DebugLog.w(TAG, "按坐标点放大镜（偏移 $offset dp）")
                 if (clickSearchIconByLayout(offset)) {
-                    delay(1300)
+                    delay(1500)
                     if (hasEditable()) {
                         entered = true
-                        DebugLog.d(TAG, "放大镜点击成功（偏移 $offset dp）")
+                        DebugLog.d(TAG, "已进入微信搜索页（偏移 $offset dp）")
                         break
                     }
                 }
             }
+            if (entered) break
         }
 
         if (!entered) {
@@ -105,7 +95,7 @@ class WechatExecutor(
             return@withContext fail(
                 action,
                 "没能进入微信搜索",
-                "点了搜索图标但没出现输入框（已导出节点树）"
+                "按坐标点放大镜后仍未出现输入框（已导出节点树）"
             )
         }
 
