@@ -4,6 +4,12 @@
 > 算法：`versionCode = 主*10000 + 次*100 + 修订`（2.5.2 → 20502）。
 > 修 bug / 小调整 → 修订号 +1；加功能 → 次版本 +1；大改版 → 主版本 +1。
 
+## v2.5.6（修复 AIDL 未编译）
+
+- AGP 8 起 `aidl` 构建特性默认关闭，导致 `IShellService` 没生成、Shizuku 相关代码编译失败
+- 在 `app/build.gradle` 增加 `buildFeatures { aidl = true }`
+- 版本号 20506 / 2.5.6
+
 ## v2.5.5（接入 Shizuku：验证能否读到微信界面）
 
 - 加回 Shizuku 依赖（api + provider），新增 `ShellService`（以 shell 权限执行命令）与 `ShizukuShell` 封装
