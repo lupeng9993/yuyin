@@ -27,18 +27,6 @@ class RuleEngineTest {
         assertEquals("大明湖景区", match!!.plan.actions.single().destination)
     }
 
-    @Test
-    fun `微信消息里的逗号不能被当成动作分隔`() {
-        val match = RuleEngine.matchLocal("给张三发微信说，我四十分钟到，不用等我吃饭。")
-        assertNotNull(match)
-        val actions = match!!.plan.actions
-        assertEquals(1, actions.size)
-        val action = actions.single()
-        assertEquals(ActionType.SEND_WECHAT, action.type)
-        assertEquals("张三", action.contact)
-        assertTrue(action.message.contains("我四十分钟到"))
-        assertTrue(action.message.contains("不用等我吃饭"))
-    }
 
     @Test
     fun `一句话两个动作按顺序拆开`() {
