@@ -43,7 +43,8 @@ class PermissionGuideActivity : ComponentActivity() {
                     )
                 }
             },
-            "无障碍服务（读界面、点按钮）" to { SystemSettings.open(this, SystemSettings.accessibilityIntent()) }
+            "无障碍服务（读界面、点按钮）" to { SystemSettings.open(this, SystemSettings.accessibilityIntent()) },
+            "应用详情（看权限是否生效）" to { SystemSettings.open(this, SystemSettings.appDetailsIntent(this)) }
         )
 
         items.forEach { (label, action) ->

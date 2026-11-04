@@ -722,6 +722,9 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
 
                 Divider(Modifier.padding(vertical = 6.dp))
                 Divider(Modifier.padding(vertical = 6.dp))
+                Divider(Modifier.padding(vertical = 6.dp))
+                Text("调试控制台（临时测试）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                CommandConsole(settings) { msg -> infoMessage = msg }
                 Text("模型与配置（临时测试）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 SwitchRow(
                     "卸载不删除模型",

@@ -164,25 +164,19 @@ class SystemExecutor(
                 }
             }
             is Command.ProbeAmap -> {
+                DebugLog.d("ProbeAmap", "===== 开始探测高德 =====")
+                val script = "cmd package query-activities -a android.intent.action.VIEW -d 'amapauto://navi?sourceApplication=va&lat=36.1&lon=117.1' 2>&1" +
+                    "; echo '---SPLIT---'" +
+                    "; cmd package query-activities -a android.intent.action.VIEW -d 'androidamap://navi?sourceApplication=va&lat=36.1&lon=117.1' 2>&1" +
+                    "; echo '---SPLIT---'" +
+                    "; cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.autonavi.amapauto 2>&1"
                 val out = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val a = com.voiceassistant.shell.ShizukuShell.exec(
-                        "cmd package query-activities -a android.intent.action.VIEW -d 'amapauto://navi?sourceApplication=va&lat=36.1&lon=117.1' 2>&1 | head -40",
-                        context
-                    )
-                    val b = com.voiceassistant.shell.ShizukuShell.exec(
-                        "cmd package query-activities -a android.intent.action.VIEW -d 'androidamap://navi?sourceApplication=va&lat=36.1&lon=117.1' 2>&1 | head -40",
-                        context
-                    )
-                    val c = com.voiceassistant.shell.ShizukuShell.exec(
-                        "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.autonavi.amapauto 2>&1",
-                        context
-                    )
-                    "== amapauto:// ==\n$a\n== androidamap:// ==\n$b\n== launch activity ==\n$c"
+                    com.voiceassistant.shell.ShizukuShell.exec(script, context)
                 }
-                DebugLog.d("ProbeAmap", "===== 高德探测开始 =====")
+                DebugLog.d("ProbeAmap", "结果长度=${out.length}")
                 out.chunked(900).forEach { DebugLog.d("ProbeAmap", it) }
-                DebugLog.d("ProbeAmap", "===== 高德探测结束 =====")
-                ActionResult(action, true, "高德探测结果已写日志", "len=${out.length}")
+                DebugLog.d("ProbeAmap", "===== 探测结束 =====")
+                ActionResult(action, true, "高德探测完成，结果已写日志", "len=${out.length}")
             }
             is Command.OcrScreen -> {                val count = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     com.voiceassistant.shell.OcrHelper.captureAndLog(context)
