@@ -70,10 +70,7 @@ class Dispatcher(
                     continue
                 }
             }
-
-            // 微信流程包含多次截图/OCR 和多轮语音追问（每轮 6 秒），
-            // 30 秒必然不够，单独给 180 秒
-            val timeout = if (action.type == ActionType.SEND_WECHAT) WECHAT_TIMEOUT else ACTION_TIMEOUT
+            val timeout = ACTION_TIMEOUT
             val result = withTimeoutOrNull(timeout) { execute(action) }
             if (result == null) {
                 results.add(ActionResult(action, false, "操作超时", "${timeout / 1000} 秒内未完成"))

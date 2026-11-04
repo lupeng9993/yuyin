@@ -740,7 +740,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     vm.update { it.copy(autoPullGithub = v) }
                 }
                 OutlinedButton(onClick = {
-                    runCatching { startActivity(com.voiceassistant.ui.PermissionGuideActivity.intent(context)) }
+                    runCatching { context.startActivity(com.voiceassistant.ui.PermissionGuideActivity.intent(context)) }
                 }) { Text("重新打开权限引导") }
                 Text("日志上传（临时测试，后期删除）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 FieldRow("上传地址", settings.logUploadUrl, "https://你的服务器/upload") { v ->

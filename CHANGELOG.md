@@ -4,6 +4,11 @@
 > 算法：`versionCode = 主*10000 + 次*100 + 修订`（2.5.2 → 20502）。
 > 修 bug / 小调整 → 修订号 +1；加功能 → 次版本 +1；大改版 → 主版本 +1。
 
+## v2.5.19（修编译）
+
+- `Dispatcher` 仍引用已删除的 `WECHAT_TIMEOUT` → 改回 `ACTION_TIMEOUT`
+- 设置页「重新打开权限引导」在 Compose 里直接调 `startActivity` → 改为 `context.startActivity`
+- 版本号 20519 / 2.5.19
 ## v2.5.18（权限引导 / 模型开关 / 高德探测）
 
 - **首次启动权限引导页** `PermissionGuideActivity`：通知、悬浮窗、所有文件访问、无障碍四项一键跳转，可跳过
