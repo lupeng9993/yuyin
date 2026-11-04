@@ -90,6 +90,23 @@ jobs:
             echo "==> 没有 KEYSTORE_BASE64，release 将产出未签名包"
           fi
 
+      # 固定 debug 签名：密钥文件随仓库走，不依赖 GitHub 缓存
+      - name: Use pinned debug keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ -f ci/debug.keystore ]; then
+            cp ci/debug.keystore "$HOME/.android/debug.keystore"
+            echo "==> 使用仓库内固定 debug.keystore"
+          else
+            echo "==> 仓库里没有 ci/debug.keystore，临时生成（签名会变！）"
+            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -keypass android -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10950 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey | grep -E "SHA1:|SHA256:" || true
+
       - name: Run unit tests
         run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
 
