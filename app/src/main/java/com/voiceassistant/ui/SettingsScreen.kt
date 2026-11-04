@@ -518,19 +518,6 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 Hint("说「今天天气」时：定位城市和这里不同 → 两个都播；相同 → 只播一次。天气复用上面这把高德 Key。")
 
                 Divider(Modifier.padding(vertical = 6.dp))
-                Text("微信发送", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                SwitchRow("启用微信发送", "依赖无障碍服务", settings.wechatEnabled) { v ->
-                    vm.update { it.copy(wechatEnabled = v) }
-                }
-                Hint("只要这个技能开启，无论本地匹配还是云端解析，都必须语音二次确认后才会真的发送。")
-                OutlinedButton(
-                    onClick = { SystemSettings.open(context, SystemSettings.accessibilityIntent()) }
-                ) { Text(if (uiState.accessibilityReady) "无障碍已开启" else "去开启无障碍服务") }
-
-                FieldRow("发送键偏移（dp，临时测试）", settings.sendOffsetDp, "8") { v ->
-                    vm.update { it.copy(sendOffsetDp = v) }
-                }
-                Hint("发不出去或点偏了再调这个，一般 8～40；车机版输入框更宽，可能需要大一点。")
 
                 OutlinedButton(onClick = {
                     com.voiceassistant.exec.A11yBridge.dumpTree()

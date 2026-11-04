@@ -24,13 +24,13 @@ data class DispatchOutcome(
 /** 技能开关 */
 enum class Skill(val label: String) {
     NAVIGATE("导航"),
-    WECHAT("微信发送"),
     OTHER("应用与系统控制");
 
     companion object {
         fun of(action: VaAction): Skill? = when (action.type) {
             com.voiceassistant.nlu.ActionType.NAVIGATE -> NAVIGATE
-            com.voiceassistant.nlu.ActionType.SEND_WECHAT -> WECHAT
+            // 微信控制已停用，不再有独立技能开关
+            com.voiceassistant.nlu.ActionType.SEND_WECHAT -> null
             com.voiceassistant.nlu.ActionType.OTHER -> OTHER
             com.voiceassistant.nlu.ActionType.UNKNOWN -> null
         }

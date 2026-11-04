@@ -63,8 +63,6 @@ class SystemExecutor(
         data object OcrScreen : Command
         /** 打开坐标校准页：用户点一下搜索图标，记录坐标 */
         data object CalibrateSearch : Command
-        /** 朗读当前聊天里的消息（实验） */
-        data object ReadChat : Command
         /** 上传日志到设置里填的地址 */
         data object UploadLog : Command
         /** 取消静音并恢复音量 */
@@ -161,12 +159,6 @@ class SystemExecutor(
                     DebugLog.w(TAG, "打开校准页失败: ${e.message}")
                     ActionResult(action, false, "打不开校准页", e.message.orEmpty())
                 }
-            }
-            is Command.ReadChat -> {
-                val msg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    ChatReader(context).readAloud()
-                }
-                ActionResult(action, true, msg, "readChat")
             }
             is Command.OcrScreen -> {                val count = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     com.voiceassistant.shell.OcrHelper.captureAndLog(context)
@@ -837,12 +829,6 @@ class SystemExecutor(
             if (t.contains("调低") || t.contains("调小") || t.contains("小一点") ||
                 t.contains("低一点") || t.contains("小点声") || t.contains("降低")
             ) return Command.VolumeDown
-        }
-
-        // Shizuku 能力验证：说「执行命令」跑一次 uiautomator dump
-        // 朗读当前聊天消息（实验）
-        if (t.contains("朗读消息") || t.contains("读消息") || t.contains("念消息")) {
-            return Command.ReadChat
         }
 
         // 校准搜索图标位置

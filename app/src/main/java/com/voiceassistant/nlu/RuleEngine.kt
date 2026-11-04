@@ -15,21 +15,6 @@ object RuleEngine {
 
     // ---- 整句级模板 ----
 
-    /** 给某某发微信说……（消息正文允许包含逗号，所以整句匹配） */
-    private val wechat = Regex(
-        "^(?:帮我|请|麻烦)?\\s*(?:给|向)\\s*(.+?)\\s*" +
-            "(?:发|发送|发条|发个|发一条|转告)\\s*(?:个|一条)?\\s*" +
-            "(?:微信|wechat)(?:消息)?\\s*[，,：:]?\\s*" +
-            "(?:说|内容是|告诉他|告诉她|跟他说|跟她说)?\\s*[，,：:]?\\s*(.*)$",
-        RegexOption.IGNORE_CASE
-    )
-
-    /** 「微信给X发消息说…」这种把"微信"放前面的说法 */
-    private val wechatAlt = Regex(
-        "^(?:微信|wechat)\\s*(?:给|向)\\s*(.+?)\\s*(?:发|发送)?\\s*(?:消息|信息|微信)?\\s*" +
-            "(?:说|内容是|告诉他|告诉她)?\\s*[，,：:]?\\s*(.*)$",
-        RegexOption.IGNORE_CASE
-    )
 
     /** 导航到某某 / 带我去某某 / 去某某 */
     private val navigate = Regex(
@@ -72,7 +57,6 @@ object RuleEngine {
 
         // 1. 整句优先：微信 / 导航。这两类的正文里可能自带逗号，先按整句吃下来，
         //    避免「给我妈发微信说，我晚点回」里的逗号把消息正文切断。
-        matchWechat(sentence)?.let { return Match(ActionPlan.single(it, ActionPlan.Source.LOCAL_RULE)) }
         matchNavigate(sentence)?.let { return Match(ActionPlan.single(it, ActionPlan.Source.LOCAL_RULE)) }
 
         // 2. 其余情况按子句切分，逐句匹配（一句话多个动作靠这一步）
@@ -87,18 +71,8 @@ object RuleEngine {
 
     /** 单个子句的匹配顺序：微信 → 导航 → 系统控制 */
     private fun matchClause(clause: String): VaAction? =
-        matchWechat(clause) ?: matchNavigate(clause) ?: matchSystem(clause)
+        matchNavigate(clause) ?: matchSystem(clause)
 
-    private fun matchWechat(clause: String): VaAction? {
-        val m = wechat.find(clause) ?: wechatAlt.find(clause) ?: return null
-        val contact = m.groupValues[1].trim()
-        val message = m.groupValues[2].trim().trimEnd('。', '！', '!', '.')
-        return when {
-            contact.isEmpty() -> VaAction.unknown("缺少联系人")
-            message.isEmpty() -> VaAction.unknown("缺少消息内容")
-            else -> VaAction(ActionType.SEND_WECHAT, contact = contact, message = message)
-        }
-    }
 
     private fun matchNavigate(clause: String): VaAction? {
         val m = navigate.find(clause) ?: return null

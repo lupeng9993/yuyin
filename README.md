@@ -1,5 +1,8 @@
 # 本地语音助手（Android）
 
+> **注意（v2.5.17 起）**：微信控制功能已下线。`send_wechat` 动作类型保留以避免协议不兼容，但收到后会直接回复「微信发送功能已停用」。
+
+
 本地优先的语音助手：唤醒 → VAD 截句 → 离线识别 → 本地规则优先 → 云端大模型增强（可选）→ 意图执行 → 语音播报。
 
 - 语言 / UI：Kotlin + Jetpack Compose
@@ -18,10 +21,16 @@
 
 ```bash
 # 1. 取推理库（约 49 MB，仓库不提交）
+
+> **注意（v2.5.17 起）**：微信控制功能已下线。`send_wechat` 动作类型保留以避免协议不兼容，但收到后会直接回复「微信发送功能已停用」。
+
 bash scripts/fetch-sherpa-onnx.sh        # Linux / macOS
 powershell -ExecutionPolicy Bypass -File scripts\fetch-sherpa-onnx.ps1   # Windows
 
 # 2. 构建
+
+> **注意（v2.5.17 起）**：微信控制功能已下线。`send_wechat` 动作类型保留以避免协议不兼容，但收到后会直接回复「微信发送功能已停用」。
+
 gradle :app:assembleDebug
 ```
 

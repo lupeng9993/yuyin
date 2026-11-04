@@ -29,16 +29,9 @@ class Dispatcher(
     private companion object {
         const val TAG = "Dispatcher"
         const val ACTION_TIMEOUT = 30_000L
-        /** 微信要走截图+OCR+多轮追问，单独放宽 */
-        const val WECHAT_TIMEOUT = 180_000L
     }
 
     private val navigation = NavigationExecutor(context, settings)
-    private val wechat = WechatExecutor(
-        context = context,
-        offsetDp = { settings.sendOffsetDp.toFloatOrNull() ?: 8f },
-        listen = listenText
-    )
     private val system = SystemExecutor(context, settings, confirm)
 
     suspend fun dispatch(plan: ActionPlan): DispatchOutcome {
@@ -99,14 +92,18 @@ class Dispatcher(
 
     private suspend fun execute(action: VaAction): ActionResult = when (action.type) {
         ActionType.NAVIGATE -> navigation.execute(action, choosePlace)
-        ActionType.SEND_WECHAT -> wechat.send(action, confirm, chooseOption)
+        // 微信控制已停止支持：协议类型保留，避免云端仍返回时崩掉
+        ActionType.SEND_WECHAT -> ActionResult(
+            action, false,
+            "微信发送功能已停用",
+            "wechat control disabled"
+        )
         ActionType.OTHER -> system.execute(action)
         ActionType.UNKNOWN -> ActionResult(action, false, "无法识别该指令", action.reason)
     }
 
     fun isSkillEnabled(skill: Skill): Boolean = when (skill) {
         Skill.NAVIGATE -> settings.navEnabled
-        Skill.WECHAT -> settings.wechatEnabled
         Skill.OTHER -> settings.otherEnabled
     }
 }

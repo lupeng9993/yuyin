@@ -445,7 +445,6 @@ private fun SkillsDialog(
                 SkillLine("本地识别", settings.asrEnabled)
                 SkillLine("云端解析", settings.cloudEnabled)
                 SkillLine("导航", settings.navEnabled)
-                SkillLine("微信发送", settings.wechatEnabled)
                 SkillLine("应用与系统控制", settings.otherEnabled)
                 SkillLine("语音播报", settings.ttsEnabled)
                 SkillLine("无障碍服务", state.accessibilityReady)
