@@ -298,6 +298,20 @@ class NavigationExecutor(
                 DebugLog.w(TAG, "唤起失败: ${e.message}")
             }
         }
+        // ② shell 方式：以 shell 身份 am start，绕开后台启动限制
+        try {
+            val candidate = uris.first()
+            val out = com.voiceassistant.shell.ShizukuShell.exec(
+                "am start -a android.intent.action.VIEW -d \"$candidate\" -p $target",
+                context
+            )
+            DebugLog.d(TAG, "am start 结果: ${out.take(160)}")
+            if (!out.contains("Error") && !out.contains("Exception")) {
+                return true
+            }
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "am start 失败: ${e.message}")
+        }
 
         // 退到"只打开应用"
         return try {

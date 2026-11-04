@@ -25,6 +25,10 @@ enum class ModelKind(val dir: String, val label: String) {
  */
 object ModelRepository {
 
+    /** 由设置里的「卸载不删模型」开关控制 */
+    @Volatile
+    var allowExternal: Boolean = false
+
     private const val TAG = "ModelRepo"
 
     /** 外部模型目录：卸载重装后仍然保留（需要「所有文件访问权限」） */
@@ -45,7 +49,7 @@ object ModelRepository {
      */
     fun root(context: Context): File {
         val external = File(EXTERNAL_ROOT)
-        val usable = hasExternalPermission() &&
+        val usable = allowExternal && hasExternalPermission() &&
             (external.exists() || external.mkdirs())
         val base = if (usable) external else File(context.filesDir, "models")
         base.mkdirs()

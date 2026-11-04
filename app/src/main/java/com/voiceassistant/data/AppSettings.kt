@@ -115,6 +115,14 @@ data class AppSettings(
     val syncPass: String = "",
     val autoUploadLog: Boolean = false,
     val bootAutoStart: Boolean = false,
+    /** 首次权限引导是否已完成 */
+    val guideDone: Boolean = false,
+    /** 卸载后保留模型（模型放外部目录，需要「所有文件访问」）*/
+    val keepModelsOnUninstall: Boolean = false,
+    /** GitHub 配置只读地址 */
+    val githubConfigUrl: String = "https://raw.githubusercontent.com/lupeng9993/yuyin/main/config/va_config.json",
+    /** 启动时自动从 GitHub 拉配置 */
+    val autoPullGithub: Boolean = false,
     val floatBallEnabled: Boolean = false,
     /** 悬浮球透明度 0.2–1.0 */
     val floatBallAlpha: Float = 0.85f
@@ -122,6 +130,7 @@ data class AppSettings(
     init {
         // 让下载器在任何时候都知道"模型服务端去哪儿找"，不用到处传 settings
         com.voiceassistant.model.ModelCatalog.serverBase = modelServerUrl
+        com.voiceassistant.model.ModelRepository.allowExternal = keepModelsOnUninstall
     }
 
     val hasCloudKey: Boolean get() = cloudApiKey.isNotBlank()

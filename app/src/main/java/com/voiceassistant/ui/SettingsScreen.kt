@@ -721,6 +721,27 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 Hint("授权后说「执行命令」可以跑一次 uiautomator dump，用来验证能否读到微信界面。")
 
                 Divider(Modifier.padding(vertical = 6.dp))
+                Divider(Modifier.padding(vertical = 6.dp))
+                Text("模型与配置（临时测试）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                SwitchRow(
+                    "卸载不删除模型",
+                    "开：模型放 /sdcard/VA-Models，需要「所有文件访问」；关：放私有目录",
+                    settings.keepModelsOnUninstall
+                ) { v -> vm.update { it.copy(keepModelsOnUninstall = v) } }
+                Text(
+                    "当前模型目录：" + com.voiceassistant.model.ModelRepository.rootPath(context),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FieldRow("GitHub 配置地址", settings.githubConfigUrl, "https://raw.githubusercontent.com/.../va_config.json") { v ->
+                    vm.update { it.copy(githubConfigUrl = v) }
+                }
+                SwitchRow("启动时从 GitHub 拉配置", "只读，需要能访问 raw.githubusercontent.com", settings.autoPullGithub) { v ->
+                    vm.update { it.copy(autoPullGithub = v) }
+                }
+                OutlinedButton(onClick = {
+                    runCatching { startActivity(com.voiceassistant.ui.PermissionGuideActivity.intent(context)) }
+                }) { Text("重新打开权限引导") }
                 Text("日志上传（临时测试，后期删除）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 FieldRow("上传地址", settings.logUploadUrl, "https://你的服务器/upload") { v ->
                     vm.update { it.copy(logUploadUrl = v) }

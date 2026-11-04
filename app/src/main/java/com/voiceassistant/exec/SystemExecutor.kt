@@ -61,7 +61,10 @@ class SystemExecutor(
         data object ShellDump : Command
         /** 截图 + OCR，把屏幕上的文字和坐标写日志 */
         data object OcrScreen : Command
-        /** 打开坐标校准页：用户点一下搜索图标，记录坐标 */
+        /** 探测车机高德支持哪些调起方式 */
+        data object ProbeAmap : Command
+
+        /** 打开坐标校准页 */
         data object CalibrateSearch : Command
         /** 上传日志到设置里填的地址 */
         data object UploadLog : Command
@@ -159,6 +162,27 @@ class SystemExecutor(
                     DebugLog.w(TAG, "打开校准页失败: ${e.message}")
                     ActionResult(action, false, "打不开校准页", e.message.orEmpty())
                 }
+            }
+            is Command.ProbeAmap -> {
+                val out = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val a = com.voiceassistant.shell.ShizukuShell.exec(
+                        "cmd package query-activities -a android.intent.action.VIEW -d 'amapauto://navi?sourceApplication=va&lat=36.1&lon=117.1' 2>&1 | head -40",
+                        context
+                    )
+                    val b = com.voiceassistant.shell.ShizukuShell.exec(
+                        "cmd package query-activities -a android.intent.action.VIEW -d 'androidamap://navi?sourceApplication=va&lat=36.1&lon=117.1' 2>&1 | head -40",
+                        context
+                    )
+                    val c = com.voiceassistant.shell.ShizukuShell.exec(
+                        "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.autonavi.amapauto 2>&1",
+                        context
+                    )
+                    "== amapauto:// ==\n$a\n== androidamap:// ==\n$b\n== launch activity ==\n$c"
+                }
+                DebugLog.d("ProbeAmap", "===== 高德探测开始 =====")
+                out.chunked(900).forEach { DebugLog.d("ProbeAmap", it) }
+                DebugLog.d("ProbeAmap", "===== 高德探测结束 =====")
+                ActionResult(action, true, "高德探测结果已写日志", "len=${out.length}")
             }
             is Command.OcrScreen -> {                val count = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     com.voiceassistant.shell.OcrHelper.captureAndLog(context)
@@ -830,6 +854,15 @@ class SystemExecutor(
                 t.contains("低一点") || t.contains("小点声") || t.contains("降低")
             ) return Command.VolumeDown
         }
+
+        // 探测车机高德
+
+        if (t.contains("探测高德") || t.contains("高德探测")) {
+
+            return Command.ProbeAmap
+
+        }
+
 
         // 校准搜索图标位置
         if (t.contains("校准") || t.contains("记录位置") || t.contains("记录搜索位置")) {

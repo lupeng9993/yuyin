@@ -33,6 +33,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
+        if (!PermissionGuideActivity.isDone(this)) {
+            runCatching { startActivity(PermissionGuideActivity.intent(this)) }
+        }
         requestBasePermissions()
 
         setContent {

@@ -108,6 +108,10 @@ class SettingsRepository private constructor(context: Context) {
             cloudProfilesJson = prefs[K.cloudProfiles] ?: default.cloudProfilesJson,
             activeProfileId = prefs[K.activeProfileId] ?: default.activeProfileId,
             bootAutoStart = prefs[K.bootAutoStart] ?: default.bootAutoStart,
+            guideDone = prefs[K.guideDone] ?: default.guideDone,
+            keepModelsOnUninstall = prefs[K.keepModels] ?: default.keepModelsOnUninstall,
+            githubConfigUrl = prefs[K.githubConfigUrl] ?: default.githubConfigUrl,
+            autoPullGithub = prefs[K.autoPullGithub] ?: default.autoPullGithub,
             floatBallEnabled = prefs[K.floatBallEnabled] ?: default.floatBallEnabled,
             floatBallAlpha = prefs[K.floatBallAlpha] ?: default.floatBallAlpha
         )
@@ -168,6 +172,10 @@ class SettingsRepository private constructor(context: Context) {
         m[K.cloudProfiles] = s.cloudProfilesJson
         m[K.activeProfileId] = s.activeProfileId
         m[K.bootAutoStart] = s.bootAutoStart
+        m[K.guideDone] = s.guideDone
+        m[K.keepModels] = s.keepModelsOnUninstall
+        m[K.githubConfigUrl] = s.githubConfigUrl
+        m[K.autoPullGithub] = s.autoPullGithub
         m[K.floatBallEnabled] = s.floatBallEnabled
         m[K.floatBallAlpha] = s.floatBallAlpha
     }
@@ -226,6 +234,10 @@ class SettingsRepository private constructor(context: Context) {
         val cloudProfiles = stringPreferencesKey("cloud_profiles")
         val activeProfileId = stringPreferencesKey("active_profile_id")
         val bootAutoStart = booleanPreferencesKey("boot_auto_start")
+        val guideDone = booleanPreferencesKey("guide_done")
+        val keepModels = booleanPreferencesKey("keep_models")
+        val githubConfigUrl = stringPreferencesKey("github_config_url")
+        val autoPullGithub = booleanPreferencesKey("auto_pull_github")
         val floatBallEnabled = booleanPreferencesKey("float_ball_enabled")
         val floatBallAlpha = floatPreferencesKey("float_ball_alpha")
     }

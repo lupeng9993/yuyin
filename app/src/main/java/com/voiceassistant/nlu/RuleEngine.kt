@@ -130,6 +130,8 @@ object RuleEngine {
         if (t.contains("执行命令")) return true
         // OCR 验证
         if (t.contains("识别屏幕") || t.contains("截图识别") || t.contains("识别界面")) return true
+        // 探测高德
+        if (t.contains("探测高德") || t.contains("高德探测")) return true
         // 坐标校准
         if (t.contains("校准") || t.contains("记录位置") || t.contains("记录搜索位置")) return true
         // 朗读消息（实验）
